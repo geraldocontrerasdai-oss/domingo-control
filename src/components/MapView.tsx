@@ -143,6 +143,12 @@ export default function MapView({ data }: { data: MapData }) {
               <div className="text-xs text-white/40">Dato de la naviera {ago(ship.eventAt)}</div>
               <div><span className="text-white/40">ETA </span>{shortDate(ship.eta)}{ship.etaSource ? <span className="text-white/35 text-xs"> · {ship.etaSource.replace("_", " ")}</span> : null}</div>
             </div>
+            {ship.trackUrl && (
+              <div className="px-4 pb-4 -mt-1 text-xs">
+                <a href={ship.trackUrl} target="_blank" rel="noreferrer" className="inline-block border border-white/30 px-3 py-1.5 hover:bg-white hover:text-black">Abrir seguimiento en {ship.carrier} ↗</a>
+                {ship.trackNumber && <span className="ml-2 text-white/40">Número: <span className="font-mono text-white/70 select-all">{ship.trackNumber}</span></span>}
+              </div>
+            )}
             {canEdit && <div className="pt-4"><ShipUpdate key={ship.id} ship={ship} /></div>}
             <div className="p-4">
               <div className="text-[10px] tracking-[0.3em] text-white/40 mb-3">CARGA · {ship.vehicles.length}</div>

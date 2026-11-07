@@ -6,7 +6,7 @@ import { normalizeVin, vinWarnings } from "@/lib/vin";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Veh = { vin: string; year?: number; make?: string; model?: string; color?: string; origin_place?: string; supplier?: string; container_no?: string; warnings?: string[] };
-type Result = { doc_type: string; origin?: string; vehicles: Veh[]; shipment?: any; courier?: any; notes?: string };
+type Result = { carrier_info?: { name: string | null; known: boolean }; doc_type: string; origin?: string; vehicles: Veh[]; shipment?: any; courier?: any; notes?: string };
 type Item = { id: string; file: File; status: "analyzing" | "ready" | "error" | "saved"; error?: string; result?: Result; note?: string };
 
 const TYPES: Record<string, string> = {
@@ -113,7 +113,15 @@ export default function Bandeja() {
               <span className="truncate">{it.file.name}</span>
               <span className="text-white/50 shrink-0">{it.status === "analyzing" ? "Leyendo…" : it.status === "saved" ? "Guardado ✓" : it.status === "error" ? "Error" : "Listo para revisar"}</span>
             </div>
-            {it.status === "error" && <p className="text-sm text-red-300 mt-2">{it.error}</p>}
+            {it.status === "error" && (
+              <div className="mt-2 text-sm">
+                <p className="text-red-300">{it.error}</p>
+                <div className="mt-2 flex gap-3">
+                  <button onClick={() => { patch(it.id, (i) => ({ ...i, status: "analyzing", error: undefined })); analyze(it); }} className="border border-white/30 px-3 py-1 text-xs hover:bg-white hover:text-black">Reintentar</button>
+                  <button onClick={() => patch(it.id, (i) => ({ ...i, status: "ready", result: { doc_type: "bl", origin: "other", vehicles: [{ vin: "" }], shipment: {} } }))} className="border border-white/30 px-3 py-1 text-xs hover:bg-white hover:text-black">Llenar a mano</button>
+                </div>
+              </div>
+            )}
             {it.note && <p className="text-sm text-amber-200 mt-2">{it.note}</p>}
 
             {it.status === "ready" && it.result && (() => {
@@ -132,6 +140,11 @@ export default function Bandeja() {
                       </select></label>
                   </div>
 
+                  {r.doc_type === "bl" && (
+                    <p className={`text-xs ${r.carrier_info?.known ? "text-white/50" : "text-amber-200"}`}>
+                      {r.carrier_info?.known ? `Naviera reconocida: ${r.carrier_info.name}.` : `Naviera ${r.carrier_info?.name ? `“${r.carrier_info.name}” ` : ""}sin enlace de seguimiento propio: el BL se guarda igual y el estado se actualiza a mano.`}
+                    </p>
+                  )}
                   {(r.doc_type === "bl" || s.booking_no || s.bl_no) && (
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                       {([["booking_no", "Booking"], ["bl_no", "BL"], ["carrier", "Naviera"], ["vessel", "Buque"], ["voyage", "Viaje"], ["port_loading", "Puerto de carga"], ["port_discharge", "Puerto de descarga"], ["consignee", "Consignatario"]] as const).map(([k, label]) => (

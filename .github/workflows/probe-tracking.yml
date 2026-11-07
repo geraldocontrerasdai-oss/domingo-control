@@ -1,19 +1,17 @@
-name: Probar seguimiento (MSC, Crowley, FedEx, DHL)
+name: Probar seguimiento de navieras y couriers
 
-# Se ejecuta a mano. Comprueba si cada página pública de seguimiento carga desde
-# GitHub y devuelve algo legible. No guarda nada ni toca la base de datos.
+# Se ejecuta a mano. Escribe los números así, separados por coma:
+#   ONE=ONEYXXXX,EGLV=EGLVXXXX,HLCU=HLCUXXXX,CROWLEY=CATXXXX,FEDEX=123456789012
+# Códigos válidos: MSC, ONE, EGLV, HLCU, MAEU, CMDU, COSU, CROWLEY, FEDEX, DHL
 on:
   workflow_dispatch:
     inputs:
-      msc:     { description: "Número de booking o BL de MSC", required: false }
-      crowley: { description: "Booking de Crowley (CAT…)", required: false }
-      fedex:   { description: "Guía de FedEx", required: false }
-      dhl:     { description: "Guía de DHL", required: false }
+      numbers: { description: "CODIGO=NUMERO separados por coma", required: true }
 
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,11 +22,5 @@ jobs:
       - name: Probar páginas
         working-directory: worker
         env:
-          MSC: ${{ inputs.msc }}
-          CROWLEY: ${{ inputs.crowley }}
-          FEDEX: ${{ inputs.fedex }}
-          DHL: ${{ inputs.dhl }}
+          NUMBERS: ${{ inputs.numbers }}
         run: node probe.mjs
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with: { name: capturas, path: worker/out/ }

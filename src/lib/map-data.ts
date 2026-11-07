@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { detectCarrier, trackUrl } from "@/lib/carriers";
 import { buildRoute, needsPanama, PORT_LABELS, portPoint } from "@/lib/geo";
 
 export type VehicleCard = {
@@ -11,7 +12,7 @@ export type VehicleCard = {
 export type ShipView = {
   id: string; num: string; name: string; voyage: string; mode: "roro" | "container"; carrier: string;
   event: string; eventAt: string | null; eta: string | null; etaSource: string | null;
-  shipmentIds: string[]; route: string; color: string; done: string; todo: string;
+  trackUrl: string | null; trackNumber: string | null; shipmentIds: string[]; route: string; color: string; done: string; todo: string;
   pos: { x: number; y: number }; tag: { x: number; y: number }; vehicles: VehicleCard[];
 };
 
@@ -102,6 +103,8 @@ export async function getMapData(): Promise<MapData> {
       name: g.name, voyage: v.voyage_no, mode: roro ? "roro" : "container", carrier: v.carrier,
       event: ev ? EVENTS[ev.event_type] ?? ev.event_type : "Sin eventos todavía",
       eventAt: ev?.observed_at ?? null, eta: eta?.eta ?? null, etaSource: eta?.source ?? null,
+      trackUrl: trackUrl(detectCarrier(v.carrier, first.bl_no, first.booking_no).carrier, first.booking_no ?? first.bl_no),
+      trackNumber: first.booking_no ?? first.bl_no ?? null,
       shipmentIds: [...shipmentIds], route: `${first.port_loading} → ${first.port_discharge}`,
       color: roro ? RORO_COLOR : COLORS[(containerNum - 1) % COLORS.length],
       ...geo, vehicles: cars,

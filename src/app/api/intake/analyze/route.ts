@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeVin, stripMoney, vinWarnings } from "@/lib/vin";
+import { detectCarrier } from "@/lib/carriers";
 
 export const maxDuration = 60;
 
@@ -51,6 +52,9 @@ REGLAS ESTRICTAS:
 - Copia los chasis/VIN exactamente como aparecen; no los corrijas ni los completes. Si algo está borroso, ponlo en notes.
 - Un BL puede listar varios vehículos: extrae todos. Una factura o Gate Pass suele tener uno.
 - En un BL, bl_status es "draft" si el documento dice DRAFT, borrador o copia no negociable.
+- El documento puede ser de CUALQUIER naviera (MSC, ONE, Evergreen, Hapag-Lloyd, Maersk, CMA CGM, COSCO, OOCL, ZIM, Yang Ming, HMM, Crowley u otra). Cada una usa su propio formato: busca los datos por su significado, no por la posición. Los primeros 4 caracteres del número de BL suelen ser el código de la naviera.
+- bl_status "final" si es el BL original o definitivo, o un Sea Waybill / Express Release; "draft" si dice DRAFT, borrador o copia no negociable.
+- Si el BL tiene varias páginas o listas de contenedores, recorre todas. Un BL puede traer varios contenedores y muchos chasis.
 - Si un dato no aparece, omítelo. No inventes.`;
 
 async function ask(model: string, mediaType: string, b64: string) {
@@ -103,6 +107,10 @@ export async function POST(req: Request) {
     if (clean.shipment?.containers) {
       clean.shipment.containers = clean.shipment.containers.map((c: string) => c.toUpperCase().replace(/[^A-Z0-9]/g, ""));
     }
+    const sh = clean.shipment ?? {};
+    const guess = detectCarrier(sh.carrier, sh.bl_no, sh.booking_no);
+    clean.carrier_info = { name: guess.carrier?.name ?? sh.carrier ?? null, known: guess.known };
+    if (guess.carrier && !sh.carrier) clean.shipment = { ...sh, carrier: guess.carrier.name };
     return NextResponse.json({ result: clean });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Error leyendo el documento" }, { status: 502 });
