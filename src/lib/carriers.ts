@@ -15,7 +15,7 @@ export const CARRIERS: Carrier[] = [
   { code: "ZIMU", name: "ZIM", prefixes: ["ZIMU"], names: /\bzim\b/i, url: "https://www.zim.com/tools/track-a-shipment" },
   { code: "YMLU", name: "Yang Ming", prefixes: ["YMLU"], names: /yang\s?ming/i, url: "https://www.yangming.com/e-service/Track_Trace/track_trace_cargo_tracking.aspx" },
   { code: "HDMU", name: "HMM", prefixes: ["HDMU"], names: /\bhmm\b|hyundai merchant/i, url: "https://www.hmm21.com/e-service/general/trackNTrace/TrackNTrace.do" },
-  { code: "CROWLEY", name: "Crowley", prefixes: ["CAT"], names: /crowley/i, url: "https://www.crowley.com/logistics/track-trace/" },
+  { code: "CROWLEY", name: "Crowley", prefixes: ["CAT"], names: /crowley/i, url: "https://csight.crowley.com/crowley/s/shipment-tracking" },
 ];
 
 export type CarrierGuess = { carrier: Carrier | null; known: boolean };

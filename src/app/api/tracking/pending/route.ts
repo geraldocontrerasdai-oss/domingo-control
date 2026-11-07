@@ -21,16 +21,18 @@ export async function GET(req: Request) {
   const due = force || hours >= RUN_EVERY_HOURS;
   if (!due) return NextResponse.json({ due: false, last_run: lastAt, hours_since: Math.round(hours * 10) / 10, items: [] });
 
-  const [ships, events] = await Promise.all([
-    sb.from("shipments").select("booking_no, bl_no, mode, voyage:voyages(id, carrier, vessel:vessels(name))"),
+  const [ships, events, cars] = await Promise.all([
+    sb.from("shipments").select("id, booking_no, bl_no, mode, voyage:voyages(id, carrier, vessel:vessels(name))"),
     sb.from("v_voyage_last_event").select("voyage_id, event_type, route_progress"),
+    sb.from("vehicles").select("identifier, shipment_id").is("archived_at", null),
   ]);
   const lastOf = new Map((events.data ?? []).map((e: any) => [e.voyage_id, e]));
   const byVoyage = new Map<string, any>();
   for (const s of ships.data ?? []) {
     const v: any = Array.isArray(s.voyage) ? s.voyage[0] : s.voyage;
     if (!v) continue;
-    const g = byVoyage.get(v.id) ?? { v, numbers: [] as string[], mode: s.mode };
+    const g = byVoyage.get(v.id) ?? { v, numbers: [] as string[], mode: s.mode, vehicles: [] as { vin: string; booking: string }[] };
+    for (const c of cars.data ?? []) if (c.shipment_id === s.id) g.vehicles.push({ vin: c.identifier, booking: s.booking_no });
     const num = s.bl_no ?? (s.booking_no?.startsWith("BL ") ? null : s.booking_no);
     if (num && !g.numbers.includes(num)) g.numbers.push(num);
     byVoyage.set(v.id, g);
@@ -44,7 +46,7 @@ export async function GET(req: Request) {
     const guess = detectCarrier(g.v.carrier, ...g.numbers);
     return [{
       voyage_id: voyageId, vessel: vessel?.name ?? null, carrier: guess.carrier?.name ?? g.v.carrier,
-      numbers: g.numbers, mode: g.mode, url: trackUrl(guess.carrier, g.numbers[0]),
+      numbers: g.numbers, vehicles: g.mode === "roro" ? g.vehicles : undefined, mode: g.mode, url: trackUrl(guess.carrier, g.numbers[0]),
       current_event: last?.event_type ?? null, current_progress: last?.route_progress ?? null,
     }];
   });

@@ -16,8 +16,17 @@ export type ShipView = {
   pos: { x: number; y: number }; tag: { x: number; y: number }; vehicles: VehicleCard[];
 };
 
-export type MapData = { ships: ShipView[]; unassigned: number; role: string; lastRun: string | null; ports: typeof PORT_LABELS };
+// Viaje ya descargado hace más de 3 semanas: sale del mapa y pasa a "Contenedores anteriores"
+export type PrevShip = {
+  id: string; name: string; carrier: string; mode: "roro" | "container"; route: string;
+  event: string; doneAt: string | null; trackNumber: string | null; vehicles: VehicleCard[];
+};
 
+export const KEEP_DAYS = 21;
+
+export type MapData = { ships: ShipView[]; previous: PrevShip[]; unassigned: number; role: string; lastRun: string | null; ports: typeof PORT_LABELS };
+
+const FINAL = ["arrived", "discharged"];
 const COLORS = ["#7dd3fc", "#86efac", "#fde68a", "#f9a8d4", "#c4b5fd", "#fca5a5"];
 const RORO_COLOR = "#fdba74";
 
@@ -68,12 +77,16 @@ export async function getMapData(): Promise<MapData> {
   const routeCount = new Map<string, number>();
   let containerNum = 0, roroNum = 0;
   const views: ShipView[] = [];
+  const previous: PrevShip[] = [];
 
   for (const g of groups) {
     const { first, list, v } = g;
     const origin = portPoint(first.port_loading), dest = portPoint(first.port_discharge);
     if (!origin || !dest) continue;
     const roro = first.mode === "roro";
+    const evNow: any = eventOf.get(g.voyageId);
+    const doneAt: string | null = evNow && FINAL.includes(evNow.event_type) ? (evNow.occurred_at ?? evNow.observed_at) : null;
+    const isOld = !!doneAt && Date.now() - new Date(doneAt).getTime() > KEEP_DAYS * 864e5;
     const key = `${first.mode}|${first.port_loading}|${first.port_discharge}`;
     const slot = routeCount.get(key) ?? 0;
     routeCount.set(key, slot + 1);
@@ -98,6 +111,15 @@ export async function getMapData(): Promise<MapData> {
         };
       });
 
+    if (isOld) {
+      previous.push({
+        id: g.voyageId, name: g.name, carrier: v.carrier, mode: roro ? "roro" : "container",
+        route: `${first.port_loading} → ${first.port_discharge}`, event: EVENTS[evNow.event_type] ?? evNow.event_type,
+        doneAt, trackNumber: first.bl_no ?? first.booking_no ?? null, vehicles: cars,
+      });
+      continue;
+    }
+
     views.push({
       id: g.voyageId,
       num: roro ? (++roroNum > 1 ? `R${roroNum}` : "R") : String(++containerNum),
@@ -112,7 +134,8 @@ export async function getMapData(): Promise<MapData> {
     });
   }
 
-  const onMap = new Set(views.flatMap((s) => s.vehicles.map((c) => c.id)));
+  previous.sort((a, b) => (b.doneAt ?? "").localeCompare(a.doneAt ?? ""));
+  const onMap = new Set([...views.flatMap((s) => s.vehicles), ...previous.flatMap((s) => s.vehicles)].map((c) => c.id));
   const unassigned = (vehicles.data ?? []).filter((c: any) => !onMap.has(c.id)).length;
-  return { ships: views, unassigned, role: prof.data?.role ?? "consulta", lastRun: (run.data?.value as any)?.at ?? null, ports: PORT_LABELS };
+  return { ships: views, previous, unassigned, role: prof.data?.role ?? "consulta", lastRun: (run.data?.value as any)?.at ?? null, ports: PORT_LABELS };
 }
