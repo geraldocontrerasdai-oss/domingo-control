@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/browser";
 import type { VehicleCard } from "@/lib/map-data";
 import { BL_STATUS, DOCS, STAGES } from "@/lib/format";
 
+type Doc = { id: string; doc_type: string; version: number; url: string; name: string };
 type Media = { id: string; kind: "photo" | "video"; is_primary: boolean; url: string; caption: string | null };
 
 const MAX_BYTES = 50 * 1024 * 1024; // tope del plan gratuito de Supabase
@@ -29,6 +30,7 @@ export default function VehicleDrawer({ car, canEdit, onClose }: { car: VehicleC
   const [cur, setCur] = useState(0);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [docs, setDocs] = useState<Doc[]>([]);
 
   const load = useCallback(async () => {
     const sb = createClient();
@@ -45,7 +47,17 @@ export default function VehicleDrawer({ car, canEdit, onClose }: { car: VehicleC
     setCur(0);
   }, [car.id]);
 
-  useEffect(() => { load(); }, [load]);
+  const loadDocs = useCallback(async () => {
+    const sb = createClient();
+    const ors = [`vehicle_id.eq.${car.id}`, ...(car.shipmentId ? [`shipment_id.eq.${car.shipmentId}`] : [])].join(",");
+    const { data } = await sb.from("documents").select("id, doc_type, version, storage_path").or(ors).eq("is_current", true).is("archived_at", null);
+    const rows = data ?? [];
+    const signed = rows.length ? (await sb.storage.from("documents").createSignedUrls(rows.map((r) => r.storage_path), 3600)).data ?? [] : [];
+    const url = new Map(signed.map((s) => [s.path, s.signedUrl]));
+    setDocs(rows.map((r) => ({ id: r.id, doc_type: r.doc_type, version: r.version, url: url.get(r.storage_path) ?? "", name: r.storage_path.split("/").pop()!.replace(/^[0-9a-f]{8}-/, "") })));
+  }, [car.id, car.shipmentId]);
+
+  useEffect(() => { load(); loadDocs(); }, [load, loadDocs]);
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", k);
@@ -91,6 +103,7 @@ export default function VehicleDrawer({ car, canEdit, onClose }: { car: VehicleC
   }
 
   const m = items[cur];
+  const FOLDERS: Record<string, string> = { bl_final: "BL", bl_draft: "BL (borrador)", gate_pass: "Gate Pass", crowley_tag: "Etiqueta Crowley", title: "Título", courier_receipt: "Guía de courier" };
   const rows: [string, string | null][] = [
     ["Chasis / VIN", car.identifier], ["Color", car.color], ["Origen", car.origin],
     ["Etapa", STAGES[car.stage] ?? car.stage], ["Documentos", DOCS[car.docs] ?? car.docs],
@@ -154,6 +167,18 @@ export default function VehicleDrawer({ car, canEdit, onClose }: { car: VehicleC
             {rows.map(([k, v]) => (
               <div key={k}><dt className="text-[10px] tracking-[0.2em] text-white/40">{k.toUpperCase()}</dt><dd className="mt-0.5 break-words">{v || "—"}</dd></div>
             ))}
+            <div>
+              <dt className="text-[10px] tracking-[0.2em] text-white/40">CARPETA DE DOCUMENTOS</dt>
+              <dd className="mt-1 space-y-1">
+                {docs.length === 0 && <span className="text-white/40">Sin documentos guardados.</span>}
+                {docs.map((x) => (
+                  <a key={x.id} href={x.url} target="_blank" rel="noreferrer" className="block border border-white/15 px-2 py-1.5 hover:border-white">
+                    <span className="block text-[11px] text-white/50">{FOLDERS[x.doc_type] ?? x.doc_type}{x.version > 1 ? ` · versión ${x.version}` : ""}</span>
+                    <span className="block text-xs truncate">{x.name}</span>
+                  </a>
+                ))}
+              </dd>
+            </div>
             {car.notes && <div><dt className="text-[10px] tracking-[0.2em] text-white/40">NOTAS</dt><dd className="mt-0.5 text-amber-200/90">{car.notes}</dd></div>}
           </dl>
         </div>

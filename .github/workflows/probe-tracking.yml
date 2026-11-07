@@ -1,0 +1,34 @@
+name: Probar seguimiento (MSC, Crowley, FedEx, DHL)
+
+# Se ejecuta a mano. Comprueba si cada página pública de seguimiento carga desde
+# GitHub y devuelve algo legible. No guarda nada ni toca la base de datos.
+on:
+  workflow_dispatch:
+    inputs:
+      msc:     { description: "Número de booking o BL de MSC", required: false }
+      crowley: { description: "Booking de Crowley (CAT…)", required: false }
+      fedex:   { description: "Guía de FedEx", required: false }
+      dhl:     { description: "Guía de DHL", required: false }
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Instalar navegador
+        working-directory: worker
+        run: npm install --no-audit --no-fund && npx playwright install --with-deps chromium
+      - name: Probar páginas
+        working-directory: worker
+        env:
+          MSC: ${{ inputs.msc }}
+          CROWLEY: ${{ inputs.crowley }}
+          FEDEX: ${{ inputs.fedex }}
+          DHL: ${{ inputs.dhl }}
+        run: node probe.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: capturas, path: worker/out/ }

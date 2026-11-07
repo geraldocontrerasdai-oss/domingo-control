@@ -4,7 +4,7 @@ import { buildRoute, needsPanama, PORT_LABELS, portPoint } from "@/lib/geo";
 export type VehicleCard = {
   id: string; identifier: string; title: string; color: string | null; origin: string | null;
   stage: string; docs: string; notes: string | null; provisional: boolean;
-  booking: string; container: string | null; bl: string | null; blStatus: string; consignee: string;
+  shipmentId: string | null; booking: string; container: string | null; bl: string | null; blStatus: string; consignee: string;
   photo: string | null; // foto principal (URL firmada temporal)
 };
 
@@ -91,7 +91,7 @@ export async function getMapData(): Promise<MapData> {
           id: c.id, identifier: c.identifier,
           title: [c.model_year, c.make, c.model].filter(Boolean).join(" ") || "Vehículo",
           color: c.color, origin: c.origin_place, stage: c.stage, docs: c.docs, notes: c.notes,
-          provisional: c.is_provisional, booking: s.booking_no, container: cont?.container_no ?? null,
+          provisional: c.is_provisional, shipmentId: s.id, booking: s.booking_no, container: cont?.container_no ?? null,
           bl: s.bl_no, blStatus: s.bl_status, consignee: s.consignee, photo: (photoOf.get(c.id) as string) ?? null,
         };
       });

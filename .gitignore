@@ -6,3 +6,5 @@ node_modules/
 *.log
 .DS_Store
 seed.local/
+worker/node_modules/
+worker/out/

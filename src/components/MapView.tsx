@@ -1,12 +1,11 @@
 "use client";
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/browser";
 import { GRAT, LAND } from "@/lib/land";
 import type { MapData, ShipView, VehicleCard } from "@/lib/map-data";
 import { ago, shortDate } from "@/lib/format";
 import VehicleDrawer from "./VehicleDrawer";
 import ShipUpdate from "./ShipUpdate";
+import AppNav from "./AppNav";
 
 const W = 1000, H = 520;
 const CARIBE = { x: 470, y: 160, w: 300, h: 156 };
@@ -20,7 +19,6 @@ function Thumb({ car, size = 44 }: { car: VehicleCard; size?: number }) {
 }
 
 export default function MapView({ data }: { data: MapData }) {
-  const router = useRouter();
   const [sel, setSel] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
   const [zoom, setZoom] = useState(false);
@@ -33,25 +31,11 @@ export default function MapView({ data }: { data: MapData }) {
   const hov = useMemo(() => data.ships.find((s) => s.id === hover) ?? null, [data.ships, hover]);
   const total = data.ships.reduce((n, s) => n + s.vehicles.length, 0);
 
-  async function salir() {
-    await createClient().auth.signOut();
-    router.push("/login");
-  }
-
   const px = (s: ShipView) => ({ x: s.pos.x * 10, y: s.pos.y * 5.2 });
 
   return (
     <div className="h-screen flex flex-col bg-black text-white overflow-hidden">
-      <header className="h-12 shrink-0 flex items-center justify-between px-5 border-b border-white/10">
-        <div className="flex items-baseline gap-4">
-          <span className="text-xs tracking-[0.3em]">DOMINGO CONTROL</span>
-          <span className="text-xs text-white/40">{data.ships.length} buques · {total} vehículos en ruta{data.unassigned ? ` · ${data.unassigned} sin embarque` : ""}</span>
-        </div>
-        <div className="flex items-center gap-4 text-xs">
-          <span className="border border-white/20 px-2 py-0.5 tracking-widest text-white/60">{data.role === "consulta" ? "SOLO LECTURA" : data.role.toUpperCase()}</span>
-          <button onClick={salir} className="text-white/50 hover:text-white">Salir</button>
-        </div>
-      </header>
+      <AppNav role={data.role} info={`${data.ships.length} buques · ${total} vehículos en ruta${data.unassigned ? ` · ${data.unassigned} sin embarque` : ""}`} />
 
       <div className="relative flex-1 min-h-0">
         <svg viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`} preserveAspectRatio="xMidYMid meet"
