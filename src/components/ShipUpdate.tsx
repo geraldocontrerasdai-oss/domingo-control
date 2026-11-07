@@ -3,18 +3,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/browser";
 import type { ShipView } from "@/lib/map-data";
+import { TRACK_EVENTS } from "@/lib/tracking";
 
-// Evento → progreso por defecto en la ruta (0 a 1) y etapa que toman los vehículos.
-const EVENTS: { code: string; label: string; progress: number; stage: string; roro: boolean }[] = [
-  { code: "booked", label: "Con reserva", progress: 0, stage: "con_reserva", roro: true },
-  { code: "loading_origin", label: "Cargando en origen", progress: 0, stage: "con_reserva", roro: true },
-  { code: "departed", label: "Zarpó de origen", progress: 0.08, stage: "embarcado", roro: true },
-  { code: "in_transit", label: "En tránsito (en altamar)", progress: 0.5, stage: "en_transito", roro: true },
-  { code: "panama", label: "Cruzando el Canal de Panamá", progress: 0.904, stage: "en_transito", roro: false },
-  { code: "caribbean", label: "Navegando el Caribe", progress: 0.95, stage: "en_transito", roro: false },
-  { code: "arrived", label: "Arribó a destino", progress: 1, stage: "arribado", roro: true },
-  { code: "discharged", label: "Descargado", progress: 1, stage: "arribado", roro: true },
-];
+const EVENTS = TRACK_EVENTS;
 
 export default function ShipUpdate({ ship }: { ship: ShipView }) {
   const router = useRouter();

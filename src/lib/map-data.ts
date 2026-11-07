@@ -16,7 +16,7 @@ export type ShipView = {
   pos: { x: number; y: number }; tag: { x: number; y: number }; vehicles: VehicleCard[];
 };
 
-export type MapData = { ships: ShipView[]; unassigned: number; role: string; ports: typeof PORT_LABELS };
+export type MapData = { ships: ShipView[]; unassigned: number; role: string; lastRun: string | null; ports: typeof PORT_LABELS };
 
 const COLORS = ["#7dd3fc", "#86efac", "#fde68a", "#f9a8d4", "#c4b5fd", "#fca5a5"];
 const RORO_COLOR = "#fdba74";
@@ -31,13 +31,14 @@ const EVENTS: Record<string, string> = {
 export async function getMapData(): Promise<MapData> {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
-  const [prof, ships, vehicles, media, events, etas] = await Promise.all([
+  const [prof, ships, vehicles, media, events, etas, run] = await Promise.all([
     sb.from("profiles").select("role").eq("id", user!.id).single(),
     sb.from("shipments").select("id, mode, booking_no, bl_no, bl_status, consignee, port_loading, port_discharge, voyage:voyages(id, voyage_no, carrier, vessel:vessels(name)), containers(container_no)"),
     sb.from("vehicles").select("id, identifier, make, model, model_year, color, origin_place, stage, docs, notes, is_provisional, shipment_id, container_id").is("archived_at", null),
     sb.from("vehicle_media").select("vehicle_id, storage_path").eq("is_primary", true).is("archived_at", null),
     sb.from("v_voyage_last_event").select("*"),
     sb.from("v_current_eta").select("voyage_id, eta, source"),
+    sb.from("settings").select("value").eq("key", "tracking_last_run").maybeSingle(),
   ]);
 
   // Fotos principales: URLs firmadas de 1 hora (el bucket es privado)
@@ -113,5 +114,5 @@ export async function getMapData(): Promise<MapData> {
 
   const onMap = new Set(views.flatMap((s) => s.vehicles.map((c) => c.id)));
   const unassigned = (vehicles.data ?? []).filter((c: any) => !onMap.has(c.id)).length;
-  return { ships: views, unassigned, role: prof.data?.role ?? "consulta", ports: PORT_LABELS };
+  return { ships: views, unassigned, role: prof.data?.role ?? "consulta", lastRun: (run.data?.value as any)?.at ?? null, ports: PORT_LABELS };
 }

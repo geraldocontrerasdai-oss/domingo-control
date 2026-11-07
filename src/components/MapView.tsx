@@ -35,7 +35,7 @@ export default function MapView({ data }: { data: MapData }) {
 
   return (
     <div className="h-screen flex flex-col bg-black text-white overflow-hidden">
-      <AppNav role={data.role} info={`${data.ships.length} buques · ${total} vehículos en ruta${data.unassigned ? ` · ${data.unassigned} sin embarque` : ""}`} />
+      <AppNav role={data.role} info={`${data.ships.length} buques · ${total} vehículos en ruta${data.unassigned ? ` · ${data.unassigned} sin embarque` : ""} · seguimiento ${data.lastRun ? ago(data.lastRun) : "sin ejecutar"}`} />
 
       <div className="relative flex-1 min-h-0">
         <svg viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`} preserveAspectRatio="xMidYMid meet"
