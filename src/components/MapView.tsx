@@ -6,6 +6,7 @@ import { GRAT, LAND } from "@/lib/land";
 import type { MapData, ShipView, VehicleCard } from "@/lib/map-data";
 import { ago, shortDate } from "@/lib/format";
 import VehicleDrawer from "./VehicleDrawer";
+import ShipUpdate from "./ShipUpdate";
 
 const W = 1000, H = 520;
 const CARIBE = { x: 470, y: 160, w: 300, h: 156 };
@@ -158,6 +159,7 @@ export default function MapView({ data }: { data: MapData }) {
               <div className="text-xs text-white/40">Dato de la naviera {ago(ship.eventAt)}</div>
               <div><span className="text-white/40">ETA </span>{shortDate(ship.eta)}{ship.etaSource ? <span className="text-white/35 text-xs"> · {ship.etaSource.replace("_", " ")}</span> : null}</div>
             </div>
+            {canEdit && <div className="pt-4"><ShipUpdate key={ship.id} ship={ship} /></div>}
             <div className="p-4">
               <div className="text-[10px] tracking-[0.3em] text-white/40 mb-3">CARGA · {ship.vehicles.length}</div>
               <div className="space-y-3">

@@ -11,7 +11,7 @@ export type VehicleCard = {
 export type ShipView = {
   id: string; num: string; name: string; voyage: string; mode: "roro" | "container"; carrier: string;
   event: string; eventAt: string | null; eta: string | null; etaSource: string | null;
-  route: string; color: string; done: string; todo: string;
+  shipmentIds: string[]; route: string; color: string; done: string; todo: string;
   pos: { x: number; y: number }; tag: { x: number; y: number }; vehicles: VehicleCard[];
 };
 
@@ -102,7 +102,7 @@ export async function getMapData(): Promise<MapData> {
       name: g.name, voyage: v.voyage_no, mode: roro ? "roro" : "container", carrier: v.carrier,
       event: ev ? EVENTS[ev.event_type] ?? ev.event_type : "Sin eventos todavía",
       eventAt: ev?.observed_at ?? null, eta: eta?.eta ?? null, etaSource: eta?.source ?? null,
-      route: `${first.port_loading} → ${first.port_discharge}`,
+      shipmentIds: [...shipmentIds], route: `${first.port_loading} → ${first.port_discharge}`,
       color: roro ? RORO_COLOR : COLORS[(containerNum - 1) % COLORS.length],
       ...geo, vehicles: cars,
     });
