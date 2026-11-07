@@ -4,7 +4,7 @@ import type { PrevShip, VehicleCard } from "@/lib/map-data";
 import { STAGES } from "@/lib/format";
 import VehicleDrawer from "./VehicleDrawer";
 
-const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("es-DO", { day: "numeric", month: "short", year: "numeric", timeZone: "America/Santo_Domingo" }) : "—");
+const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("es-DO", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "—");
 
 // Viajes descargados hace más de 3 semanas. Siguen consultables, con sus fotos y documentos.
 export default function PreviousList({ data, role }: { data: PrevShip[]; role: string }) {
