@@ -30,16 +30,21 @@ export default function MapView({ data }: { data: MapData }) {
   const ship = useMemo(() => data.ships.find((s) => s.id === sel) ?? null, [data.ships, sel]);
   const hov = useMemo(() => data.ships.find((s) => s.id === hover) ?? null, [data.ships, hover]);
   const total = data.ships.reduce((n, s) => n + s.vehicles.length, 0);
+  const [selO, setSelO] = useState<string | null>(null);
+  const [hovO, setHovO] = useState<string | null>(null);
+  const org = useMemo(() => data.origins.find((o) => o.id === selO) ?? null, [data.origins, selO]);
+  const horg = useMemo(() => data.origins.find((o) => o.id === hovO) ?? null, [data.origins, hovO]);
+  const inOrigin = data.origins.reduce((n, o) => n + o.vehicles.length, 0);
 
   const px = (s: ShipView) => ({ x: s.pos.x * 10, y: s.pos.y * 5.2 });
 
   return (
     <div className="h-screen flex flex-col bg-black text-white overflow-hidden">
-      <AppNav role={data.role} info={`${data.ships.length} buques · ${total} vehículos en ruta${data.unassigned ? ` · ${data.unassigned} sin embarque` : ""} · seguimiento ${data.lastRun ? ago(data.lastRun) : "sin ejecutar"}`} />
+      <AppNav role={data.role} info={`${data.ships.length} buques · ${total} vehículos en ruta${inOrigin ? ` · ${inOrigin} en origen` : ""}${data.unassigned ? ` · ${data.unassigned} sin embarque` : ""} · seguimiento ${data.lastRun ? ago(data.lastRun) : "sin ejecutar"}`} />
 
       <div className="relative flex-1 min-h-0">
         <svg viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`} preserveAspectRatio="xMidYMid meet"
-          className="absolute inset-0 w-full h-full transition-all" onClick={() => setSel(null)}>
+          className="absolute inset-0 w-full h-full transition-all" onClick={() => { setSel(null); setSelO(null); }}>
           <path d={GRAT} fill="none" stroke="#fff" strokeOpacity="0.06" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
           <path d={LAND} fill="#15171a" stroke="#fff" strokeOpacity="0.28" strokeWidth="0.6" vectorEffect="non-scaling-stroke" />
 
@@ -77,9 +82,24 @@ export default function MapView({ data }: { data: MapData }) {
               </g>
             );
           })}
+
+          {data.origins.map((o) => {
+            const x = o.pos.x * 10, y = o.pos.y * 5.2 + 20 / k;
+            const r = 9 / k;
+            const on = selO === o.id || hovO === o.id;
+            return (
+              <g key={o.id} transform={`translate(${x} ${y})`} className="cursor-pointer"
+                onMouseEnter={() => setHovO(o.id)} onMouseLeave={() => setHovO(null)}
+                onClick={(e) => { e.stopPropagation(); setSelO(o.id); setSel(null); }}>
+                <circle r={r * 2} fill="transparent" />
+                <rect x={-r} y={-r} width={r * 2} height={r * 2} transform="rotate(45)" fill="#000" stroke="#fff" strokeWidth={(on ? 2.4 : 1.4) / k} />
+                <text textAnchor="middle" dy={r * 0.36} fontSize={r * 1.05} fontWeight="600" fill="#fff">{o.vehicles.length}</text>
+              </g>
+            );
+          })}
         </svg>
 
-        {data.ships.length === 0 && (
+        {data.ships.length === 0 && data.origins.length === 0 && (
           <div className="absolute inset-0 grid place-items-center text-white/40 text-sm pointer-events-none">
             Todavía no hay embarques cargados.
           </div>
@@ -96,6 +116,14 @@ export default function MapView({ data }: { data: MapData }) {
                 <span className="block text-sm truncate">{s.name}</span>
                 <span className="block text-[11px] text-white/45 truncate">{s.vehicles.length} veh. · ETA {shortDate(s.eta)}</span>
               </span>
+            </button>
+          ))}
+          {data.origins.length > 0 && <div className="px-3 py-2 text-[10px] tracking-[0.3em] text-white/50 border-t border-white/10">EN ORIGEN · SIN BL</div>}
+          {data.origins.map((o) => (
+            <button key={o.id} onClick={() => { setSelO(o.id); setSel(null); }} onMouseEnter={() => setHovO(o.id)} onMouseLeave={() => setHovO(null)}
+              className={`w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-white/10 ${selO === o.id ? "bg-white/10" : ""}`}>
+              <span className="w-6 h-6 grid place-items-center text-xs shrink-0 border border-white/70 rotate-45 scale-75"><span className="-rotate-45">{o.vehicles.length}</span></span>
+              <span className="min-w-0 flex-1 text-sm truncate">{o.name}</span>
             </button>
           ))}
           <div className="px-3 py-2 text-[10px] text-white/35 border-t border-white/10">Sin AIS: posición según el último evento de la naviera.</div>
@@ -124,6 +152,53 @@ export default function MapView({ data }: { data: MapData }) {
               </div>
             ))}
           </div>
+        )}
+
+        {horg && !org && !ship && (
+          <div className="absolute z-20 w-72 border border-white/25 bg-black/95 pointer-events-none max-h-[70%] overflow-hidden"
+            style={{ left: `${horg.pos.x > 60 ? horg.pos.x - 2 : horg.pos.x + 2}%`, top: `${Math.min(horg.pos.y + 4, 55)}%`, transform: horg.pos.x > 60 ? "translateX(-100%)" : undefined }}>
+            <div className="px-3 py-2 border-b border-white/10">
+              <div className="text-sm">{horg.name}</div>
+              <div className="text-[11px] text-white/50">{horg.vehicles.length} vehículos comprados, aún en origen</div>
+            </div>
+            {horg.vehicles.slice(0, 6).map((c) => (
+              <div key={c.id} className="flex gap-2 px-3 py-1.5 border-b border-white/5 last:border-0">
+                <Thumb car={c} size={36} />
+                <div className="min-w-0 text-[11px]">
+                  <div className="text-[12px] truncate">{c.title}</div>
+                  <div className="font-mono text-white/50 truncate">{c.identifier}</div>
+                </div>
+              </div>
+            ))}
+            {horg.vehicles.length > 6 && <div className="px-3 py-1.5 text-[11px] text-white/40">y {horg.vehicles.length - 6} más…</div>}
+          </div>
+        )}
+
+        {org && (
+          <aside className="absolute right-0 top-0 bottom-0 w-[380px] max-w-full border-l border-white/15 bg-black/95 overflow-y-auto z-30">
+            <div className="p-4 border-b border-white/10 flex justify-between items-start">
+              <div>
+                <div className="text-[10px] tracking-[0.3em] text-white/60">EN ORIGEN · SIN BL</div>
+                <h2 className="text-lg mt-1">{org.name}</h2>
+                <div className="text-xs text-white/50">{org.vehicles.length} vehículos comprados, esperando reserva</div>
+              </div>
+              <button onClick={() => setSelO(null)} className="text-white/50 hover:text-white text-sm">✕</button>
+            </div>
+            <div className="p-4 space-y-3">
+              {org.vehicles.map((c) => (
+                <button key={c.id} onClick={() => setCar(c)} className="w-full text-left border border-white/15 hover:border-white overflow-hidden flex">
+                  <div className="w-24 shrink-0 bg-white/5 grid place-items-center text-[10px] text-white/35">
+                    {c.photo /* eslint-disable-next-line @next/next/no-img-element */ ? <img src={c.photo} alt={c.title} className="w-full h-full object-cover" /> : "sin foto"}
+                  </div>
+                  <div className="p-3 min-w-0">
+                    <div className="text-sm truncate">{c.title}{c.color ? <span className="text-white/40"> · {c.color}</span> : null}</div>
+                    <div className="font-mono text-xs text-white/50 mt-0.5">{c.identifier}</div>
+                    {c.provisional && <div className="text-[11px] text-amber-200/80 mt-1">Chasis por asignar</div>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </aside>
         )}
 
         {/* Panel del buque seleccionado */}

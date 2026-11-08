@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { detectCarrier, trackUrl } from "@/lib/carriers";
-import { buildRoute, needsPanama, PORT_LABELS, portPoint } from "@/lib/geo";
+import { buildRoute, needsPanama, originPort, PORT_LABELS, portPoint } from "@/lib/geo";
 
 export type VehicleCard = {
   id: string; identifier: string; title: string; color: string | null; origin: string | null;
@@ -22,9 +22,12 @@ export type PrevShip = {
   event: string; doneAt: string | null; trackNumber: string | null; vehicles: VehicleCard[];
 };
 
+// Vehículos comprados que aún no tienen embarque: se muestran en su puerto de origen
+export type OriginView = { id: string; name: string; pos: { x: number; y: number }; vehicles: VehicleCard[] };
+
 export const KEEP_DAYS = 21;
 
-export type MapData = { ships: ShipView[]; previous: PrevShip[]; unassigned: number; role: string; lastRun: string | null; ports: typeof PORT_LABELS };
+export type MapData = { ships: ShipView[]; previous: PrevShip[]; origins: OriginView[]; unassigned: number; role: string; lastRun: string | null; ports: typeof PORT_LABELS };
 
 const FINAL = ["arrived", "discharged"];
 const COLORS = ["#7dd3fc", "#86efac", "#fde68a", "#f9a8d4", "#c4b5fd", "#fca5a5"];
@@ -136,6 +139,23 @@ export async function getMapData(): Promise<MapData> {
 
   previous.sort((a, b) => (b.doneAt ?? "").localeCompare(a.doneAt ?? ""));
   const onMap = new Set([...views.flatMap((s) => s.vehicles), ...previous.flatMap((s) => s.vehicles)].map((c) => c.id));
-  const unassigned = (vehicles.data ?? []).filter((c: any) => !onMap.has(c.id)).length;
-  return { ships: views, previous, unassigned, role: prof.data?.role ?? "consulta", lastRun: (run.data?.value as any)?.at ?? null, ports: PORT_LABELS };
+  const orphans = (vehicles.data ?? []).filter((c: any) => !onMap.has(c.id));
+  const byPort = new Map<string, OriginView>();
+  let unassigned = 0;
+  for (const c of orphans as any[]) {
+    const port = originPort(c.origin_place);
+    if (!port) { unassigned++; continue; }
+    const card: VehicleCard = {
+      id: c.id, identifier: c.identifier,
+      title: [c.model_year, c.make, c.model].filter(Boolean).join(" ") || "Vehículo",
+      color: c.color, origin: c.origin_place, stage: c.stage, docs: c.docs, notes: c.notes,
+      provisional: c.is_provisional, shipmentId: null, booking: "", container: null,
+      bl: null, blStatus: "none", consignee: "", photo: (photoOf.get(c.id) as string) ?? null,
+    };
+    const g = byPort.get(port.name) ?? { id: port.name, name: port.name, pos: port.pos, vehicles: [] };
+    g.vehicles.push(card);
+    byPort.set(port.name, g);
+  }
+  const origins = [...byPort.values()].sort((a, b) => b.vehicles.length - a.vehicles.length);
+  return { ships: views, previous, origins, unassigned, role: prof.data?.role ?? "consulta", lastRun: (run.data?.value as any)?.at ?? null, ports: PORT_LABELS };
 }

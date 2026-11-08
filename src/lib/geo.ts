@@ -10,7 +10,9 @@ const P = (ll: Pt): Pt => proj(ll) as Pt;
 
 // Los puertos se reconocen por palabra clave en el texto del embarque.
 const PORTS: { key: RegExp; ll: Pt }[] = [
-  { key: /yokohama/i, ll: [139.65, 35.45] },
+  { key: /yokohama|jap[oó]n|japan|tokyo|saitama/i, ll: [139.65, 35.45] },
+  { key: /manila|filipinas|philippines/i, ll: [120.97, 14.58] },
+  { key: /ho chi minh|c[aá]t l[aá]i|vietnam|viet nam/i, ll: [106.79, 10.76] },
   { key: /everglades|uspef/i, ll: [-80.12, 26.09] },
   { key: /haina|dohai|caucedo|docau|santo domingo|dominican|dominicana/i, ll: [-69.9, 18.43] },
 ];
@@ -93,8 +95,23 @@ export function buildRoute(origin: Pt, dest: Pt, viaPanama: boolean, slot: numbe
 
 export const needsPanama = (origin: string | null | undefined) => /yokohama/i.test(origin ?? "");
 
+// Dónde está un vehículo que todavía no tiene embarque: se ubica por su lugar de origen.
+const ORIGIN_NAMES: { key: RegExp; name: string }[] = [
+  { key: /yokohama|jap[oó]n|japan|tokyo|saitama/i, name: "Japón (Yokohama)" },
+  { key: /manila|filipinas|philippines/i, name: "Filipinas (Manila)" },
+  { key: /ho chi minh|c[aá]t l[aá]i|vietnam|viet nam/i, name: "Vietnam (Ho Chi Minh)" },
+  { key: /everglades|florida|usa|miami/i, name: "Port Everglades (EE. UU.)" },
+];
+export function originPort(text: string | null | undefined): { name: string; pos: { x: number; y: number } } | null {
+  const pt = portPoint(text);
+  const nm = ORIGIN_NAMES.find((o) => o.key.test(text ?? ""));
+  return pt && nm ? { name: nm.name, pos: pct(pt) } : null;
+}
+
 export const PORT_LABELS = [
   { name: "Yokohama", ll: [139.65, 35.45] as Pt },
+  { name: "Manila", ll: [120.97, 14.58] as Pt },
+  { name: "Ho Chi Minh", ll: [106.79, 10.76] as Pt },
   { name: "Port Everglades", ll: [-80.12, 26.09] as Pt },
   { name: "Panamá", ll: [-79.7, 9.1] as Pt },
   { name: "Río Haina / Caucedo", ll: [-69.9, 18.43] as Pt },
