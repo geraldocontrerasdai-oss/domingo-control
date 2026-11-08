@@ -65,8 +65,8 @@ async function ask(model: string, mediaType: string, b64: string) {
     method: "POST",
     headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify({
-      model, max_tokens: 4096, tools: [TOOL], tool_choice: { type: "tool", name: "report_document" },
-      messages: [{ role: "user", content: [block, { type: "text", text: PROMPT }] }],
+      model, max_tokens: 4096, tools: [TOOL], tool_choice: { type: "auto" },
+      messages: [{ role: "user", content: [block, { type: "text", text: PROMPT + "\n\nResponde SIEMPRE llamando a la herramienta report_document." }] }],
     }),
   });
   if (!r.ok) throw new Error(`IA ${r.status}: ${(await r.text()).slice(0, 200)}`);
