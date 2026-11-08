@@ -20,5 +20,5 @@ export function ago(iso: string | null): string {
 export function shortDate(iso: string | null): string {
   if (!iso) return "Sin ETA";
   // Las fechas sin hora (AAAA-MM-DD) se muestran tal cual; con hora, en la zona de Santo Domingo
-  return new Date(iso).toLocaleDateString("es-DO", { day: "numeric", month: "short", timeZone: iso.length === 10 ? "UTC" : "America/Santo_Domingo" });
+  return new Date(iso).toLocaleDateString("es-DO", { day: "numeric", month: "short", timeZone: /^\d{4}-\d{2}-\d{2}(T00:00:00(\.0+)?(Z|\+00:?00)?)?$/.test(iso) ? "UTC" : "America/Santo_Domingo" });
 }
