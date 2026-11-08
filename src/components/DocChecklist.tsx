@@ -57,6 +57,22 @@ export default function DocChecklist({ vehicleId, shipmentId, blStatus, hasBooki
     setNo(""); setOpen(false); setMsg(`Guía guardada para ${ids.length} vehículo(s).`); load();
   }
 
+  // Para los que ya llegaron antes de usar el sistema: se marcan recibidos sin guía.
+  async function haveIt() {
+    if (!window.confirm(`¿Confirmas que ya tienes ${ckind === "titulo" ? "el título" : "el juego de originales"}? Se marca como recibido sin guía${ckind === "original_bl" && shipmentId ? ", para todos los vehículos de este embarque" : ""}.`)) return;
+    const sb = createClient();
+    const { data: { user } } = await sb.auth.getUser();
+    const ins = await sb.from("courier_shipments").insert({ carrier: "other", tracking_no: `SIN-GUIA-${vehicleId.slice(0, 8)}-${Date.now()}`, kind: ckind, received_confirmed_by: user!.id, received_confirmed_at: new Date().toISOString() }).select("id").single();
+    if (ins.error) { setMsg(ins.error.message); return; }
+    let ids = [vehicleId];
+    if (all && shipmentId && ckind === "original_bl") {
+      const sib = await sb.from("vehicles").select("id").eq("shipment_id", shipmentId).is("archived_at", null);
+      ids = (sib.data ?? []).map((x: any) => x.id);
+    }
+    const link = await sb.from("courier_vehicles").insert(ids.map((vehicle_id) => ({ courier_id: ins.data.id, vehicle_id })));
+    setMsg(link.error ? link.error.message : `Marcado como recibido (${ids.length} vehículo(s)).`); load();
+  }
+
   async function markReceived(c: CourierInfo) {
     if (!window.confirm(`¿Confirmas que ya tienes en la mano el ${ckind === "titulo" ? "título" : "juego de originales"}? Esto cierra la tarea.`)) return;
     const sb = createClient();
@@ -83,6 +99,7 @@ export default function DocChecklist({ vehicleId, shipmentId, blStatus, hasBooki
           <div className="pt-1 text-xs space-y-1.5">
             {pending && <button onClick={() => markReceived(pending)} className="w-full border border-white/40 px-2 py-1.5 hover:bg-white hover:text-black">Ya recibí {ckind === "titulo" ? "el título" : "los originales"}</button>}
             {!pending && !couriers.some((c) => c.kind === ckind && c.received) && !open && <button onClick={() => setOpen(true)} className="w-full border border-white/40 px-2 py-1.5 hover:bg-white hover:text-black">Agregar guía de courier</button>}
+            {!pending && !couriers.some((c) => c.kind === ckind && c.received) && !open && <button onClick={haveIt} className="w-full border border-white/20 text-white/70 px-2 py-1.5 hover:border-white">Ya lo tengo (sin guía)</button>}
             {open && (
               <div className="border border-white/20 p-2 space-y-2">
                 <select value={carrier} onChange={(e) => setCarrier(e.target.value)} className="w-full bg-black border border-white/30 px-2 py-1">

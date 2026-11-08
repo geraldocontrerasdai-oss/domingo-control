@@ -67,6 +67,8 @@ export async function getAlerts(): Promise<AlertsData> {
     const ev: any = s?.voyage_id ? evOf.get(s.voyage_id) : null;
     const eta: string | null = s?.voyage_id ? etaList.get(s.voyage_id)?.[0]?.eta ?? null : null;
     const arrived = ev && ["arrived", "discharged"].includes(ev.event_type);
+    const closed = arrived && days(ev.occurred_at ?? ev.observed_at) < -21; // descargado hace más de 3 semanas: ya es historial, sin alertas
+    if (closed) continue;
     const blOk = s?.bl_status === "final" || !!s?.booking_no; // con booking no se necesita el BL
 
     // 1. Se acerca a destino sin BL definitivo
@@ -75,14 +77,6 @@ export async function getAlerts(): Promise<AlertsData> {
         title: `${name(c)} llega ${days(eta) <= 0 ? "hoy o ya está por llegar" : `en ${Math.ceil(days(eta))} días`} y el BL no es definitivo`,
         detail: `${vesselOf(s)} · ETA ${fmt(eta)} · BL ${s.bl_status === "draft" ? "en borrador" : "sin BL"}`,
         action: "Pedir el BL definitivo al proveedor y subirlo en la Bandeja." });
-    }
-    // 2. Ya descargó y los documentos no están completos
-    if (s && arrived && c.docs !== "completo") {
-      const when = ev.occurred_at ?? ev.observed_at;
-      items.push({ ...base, id: `desp-${c.id}`, priority: "alta", rule: "Despacho pendiente",
-        title: `${name(c)} ya descargó y sus documentos no están completos`,
-        detail: `${vesselOf(s)} · descargado ${fmt(when)}`,
-        action: "Completar documentos para el despacho (BL definitivo, título o gate pass, según el origen)." });
     }
     // 3. Zarpó hace tiempo y todavía no hay BL
     if (s && !arrived && !blOk && ev && days(ev.occurred_at ?? ev.observed_at) < -7 && !(eta && days(eta) <= 7)) {
