@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/browser";
 export default function AppNav({ role, info }: { role: string; info?: string }) {
   const path = usePathname();
   const router = useRouter();
-  const links = [["/mapa", "Mapa"], ["/vehiculos", "Vehículos"], ["/anteriores", "Contenedores anteriores"], ...(role !== "consulta" ? [["/bandeja", "Bandeja"]] : [])];
+  const links = [["/mapa", "Mapa"], ["/vehiculos", "Vehículos"], ["/alertas", "Alertas"], ["/anteriores", "Contenedores anteriores"], ...(role !== "consulta" ? [["/bandeja", "Bandeja"]] : [])];
   return (
     <header className="h-12 shrink-0 flex items-center justify-between px-5 border-b border-white/10 bg-black text-white">
       <div className="flex items-baseline gap-6">

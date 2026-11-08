@@ -6,8 +6,8 @@ import VehicleDrawer from "./VehicleDrawer";
 
 type Row = VehicleCard & { vessel: string | null };
 
-export default function VehicleList({ cards, role }: { cards: Row[]; role: string }) {
-  const [q, setQ] = useState("");
+export default function VehicleList({ cards, role, initialQuery }: { cards: Row[]; role: string; initialQuery?: string }) {
+  const [q, setQ] = useState(initialQuery ?? "");
   const [stage, setStage] = useState("");
   const [sel, setSel] = useState<Row | null>(null);
   const canEdit = role === "admin" || role === "operaciones";
