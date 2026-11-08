@@ -276,7 +276,7 @@ export default function MapView({ data }: { data: MapData }) {
           <button onClick={fitAll} className="border border-white/30 bg-black/80 px-3 hover:bg-white hover:text-black">Ver todos</button>
           <button onClick={() => flyTo({ x: CARIBE.x, y: CARIBE.y, w: CARIBE.w, h: CARIBE.h })} className="border border-white/30 bg-black/80 px-3 hover:bg-white hover:text-black">Caribe</button>
         </div>
-        <div className="absolute right-4 bottom-4 text-[10px] text-white/30 pointer-events-none select-none">Rueda: zoom · Arrastra: mover · Doble clic: acercar</div>
+        <div className="hidden lg:block absolute right-4 bottom-4 text-[10px] text-white/30 pointer-events-none select-none">Rueda: zoom · Arrastra: mover · Doble clic: acercar</div>
 
         {/* Ventana al pasar el cursor: carga del buque */}
         {hov && !ship && anchor && (
