@@ -18,7 +18,9 @@ const courierState = (list: CourierInfo[], kind: string): { state: State; detail
 
 export function buildChecklist(o: { origin: OriginKind; blStatus: string; docTypes: Set<string>; couriers: CourierInfo[] }): Item[] {
   if (o.origin === "manheim") {
-    const t = courierState(o.couriers, "titulo");
+    // Con la etiqueta de Crowley el vehículo ya fue aceptado para el RORO: el título deja de ser necesario.
+    const tagged = o.docTypes.has("crowley_tag");
+    const t = tagged ? { state: "ok" as State, detail: "No aplica: ya tiene etiqueta de Crowley" } : courierState(o.couriers, "titulo");
     return [
       { key: "title", label: "Título físico (FedEx a Florida)", state: t.state, detail: t.detail, blocking: "No se puede embarcar en el RORO sin el título." },
       { key: "gate_pass", label: "Gate Pass", state: o.docTypes.has("gate_pass") ? "ok" : "falta", detail: o.docTypes.has("gate_pass") ? "En la carpeta" : "Sin subir", blocking: null },

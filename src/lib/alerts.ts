@@ -18,7 +18,7 @@ const fmt = (iso: string) => new Date(iso).toLocaleDateString("es-DO", { day: "n
 export async function getAlerts(): Promise<AlertsData> {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
-  const [prof, veh, ships, events, etas, media, run, cour, docsQ] = await Promise.all([
+  const [prof, veh, ships, events, etas, media, run, cour, docsQ, tev] = await Promise.all([
     sb.from("profiles").select("role").eq("id", user!.id).single(),
     sb.from("vehicles").select("id, identifier, make, model, model_year, is_provisional, docs, stage, shipment_id, created_at, origin").is("archived_at", null),
     sb.from("shipments").select("id, booking_no, bl_no, bl_status, voyage_id, voyage:voyages(id, vessel:vessels(name))"),
@@ -28,7 +28,17 @@ export async function getAlerts(): Promise<AlertsData> {
     sb.from("settings").select("value").eq("key", "tracking_last_run").maybeSingle(),
     sb.from("courier_vehicles").select("vehicle_id, courier:courier_shipments(kind, carrier, tracking_no, received_confirmed_at)"),
     sb.from("documents").select("vehicle_id, shipment_id, doc_type").eq("is_current", true).is("archived_at", null),
+    sb.from("tracking_events").select("voyage_id, event_type, occurred_at, observed_at"),
   ]);
+  // Fecha de salida: el evento "zarpó" si existe; si no, el evento más antiguo registrado.
+  const depOf = new Map<string, string>();
+  for (const e of (tev.data ?? []) as any[]) {
+    const t = e.occurred_at ?? e.observed_at; const cur = depOf.get(e.voyage_id);
+    const isDep = e.event_type === "departed";
+    const curIsDep = cur?.startsWith("D|");
+    if (isDep && (!curIsDep || t < cur!.slice(2))) depOf.set(e.voyage_id, "D|" + t);
+    else if (!isDep && !curIsDep && (!cur || t < cur)) depOf.set(e.voyage_id, t);
+  }
   const courOf = new Map<string, CourierInfo[]>();
   for (const r of (cour.data ?? []) as any[]) {
     const c = Array.isArray(r.courier) ? r.courier[0] : r.courier;
@@ -101,17 +111,26 @@ export async function getAlerts(): Promise<AlertsData> {
     }
     if (c.origin !== "manheim" && s) {
       const o = list.find((i) => i.key === "originals")!;
-      if (o.state !== "ok") {
-        const left = eta ? days(eta) : null;
+      const depRaw = s.voyage_id ? depOf.get(s.voyage_id) : null;
+      const dep = depRaw ? Math.floor(-days(depRaw.replace(/^D\|/, ""))) : null; // días desde que zarpó
+      const left = eta ? days(eta) : null;
+      if (o.state !== "ok" && dep !== null) {
+        const risk = "Si el contenedor llega sin los originales, la carga paga penalización.";
         if (arrived || (left !== null && left <= 10)) {
           items.push({ ...base, id: `orig-${c.id}`, priority: "alta", rule: "Originales",
-            title: `${name(c)}: los documentos originales deben llegar antes que el contenedor`,
-            detail: `${vesselOf(s)} · ${arrived ? "ya llegó" : `llega en ${Math.max(0, Math.ceil(left!))} días`} · ${o.detail}`,
-            action: o.state === "falta" ? "Pedir al proveedor el envío urgente por courier y registrar la guía." : "Dar seguimiento a la guía: sin originales no se presenta la carga." });
-        } else if (o.state === "falta" && ev && days(ev.occurred_at ?? ev.observed_at) < -10) {
+            title: `URGENTE · ${name(c)}: ${o.state === "falta" ? "no hay guía de los originales" : "los originales aún no llegan"}`,
+            detail: `${vesselOf(s)} · ${arrived ? "el contenedor ya llegó" : `llega en ${Math.max(0, Math.ceil(left!))} días`} · ${o.detail}. ${risk}`,
+            action: o.state === "falta" ? "Llamar hoy al proveedor: exigir el envío por courier y registrar la guía." : "Dar seguimiento a la guía y avisar al agente aduanal." });
+        } else if (o.state === "falta" && dep >= 14) {
+          items.push({ ...base, id: `orig-guia-${c.id}`, priority: "alta", rule: "Originales",
+            title: `${name(c)}: zarpó hace ${dep} días y todavía no hay guía de los originales`,
+            detail: `${vesselOf(s)} · lo normal es que los envíen 1–2 semanas después de zarpar. ${risk}`,
+            action: "Reclamar los originales al proveedor y registrar la guía en cuanto la den." });
+        } else if (o.state === "falta" && dep >= 7) {
           items.push({ ...base, id: `orig-guia-${c.id}`, priority: "media", rule: "Originales",
-            title: `${name(c)}: zarpó hace más de 10 días y no hay guía de los originales`, detail: vesselOf(s),
-            action: "Preguntar al proveedor si ya envió los originales y registrar la guía." });
+            title: `Recordatorio · ${name(c)}: zarpó hace ${dep} días y aún no hay guía de los originales`,
+            detail: `${vesselOf(s)} · si no hay guía es porque probablemente el proveedor no los ha enviado.`,
+            action: "Preguntar al proveedor por los originales y registrar la guía." });
         }
       }
     }
