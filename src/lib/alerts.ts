@@ -67,7 +67,7 @@ export async function getAlerts(): Promise<AlertsData> {
     const ev: any = s?.voyage_id ? evOf.get(s.voyage_id) : null;
     const eta: string | null = s?.voyage_id ? etaList.get(s.voyage_id)?.[0]?.eta ?? null : null;
     const arrived = ev && ["arrived", "discharged"].includes(ev.event_type);
-    const blOk = s?.bl_status === "final";
+    const blOk = s?.bl_status === "final" || !!s?.booking_no; // con booking no se necesita el BL
 
     // 1. Se acerca a destino sin BL definitivo
     if (s && !arrived && eta && days(eta) <= 7 && !blOk) {
@@ -100,7 +100,7 @@ export async function getAlerts(): Promise<AlertsData> {
     }
     // 4b. Documentos originales / título (checklist por origen)
     const types = new Set([...(docsOfVeh.get(c.id) ?? []), ...(c.shipment_id ? docsOfShip.get(c.shipment_id) ?? [] : [])]);
-    const list = buildChecklist({ origin: c.origin, blStatus: s?.bl_status ?? "none", docTypes: types, couriers: courOf.get(c.id) ?? [] });
+    const list = buildChecklist({ origin: c.origin, blStatus: s?.bl_status ?? "none", hasBooking: !!s?.booking_no, docTypes: types, couriers: courOf.get(c.id) ?? [] });
     if (c.origin === "manheim" && c.stage !== "arribado" && c.stage !== "en_transito" && c.stage !== "embarcado") {
       const t = list.find((i) => i.key === "title")!;
       if (t.state !== "ok") {

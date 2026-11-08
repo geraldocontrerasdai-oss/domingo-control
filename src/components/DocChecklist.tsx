@@ -6,7 +6,7 @@ import { buildChecklist, type CourierInfo, type Item, type OriginKind } from "@/
 const DOT = { falta: "#fca5a5", transito: "#fde68a", ok: "#86efac" } as const;
 const TXT = { falta: "FALTA", transito: "EN CAMINO", ok: "LISTO" } as const;
 
-export default function DocChecklist({ vehicleId, shipmentId, blStatus, canEdit }: { vehicleId: string; shipmentId: string | null; blStatus: string; canEdit: boolean }) {
+export default function DocChecklist({ vehicleId, shipmentId, blStatus, hasBooking, canEdit }: { vehicleId: string; shipmentId: string | null; blStatus: string; hasBooking: boolean; canEdit: boolean }) {
   const [items, setItems] = useState<Item[]>([]);
   const [couriers, setCouriers] = useState<CourierInfo[]>([]);
   const [kind, setKind] = useState<OriginKind>("other");
@@ -28,8 +28,8 @@ export default function DocChecklist({ vehicleId, shipmentId, blStatus, canEdit 
     const cs: CourierInfo[] = (cv.data ?? []).map((r: any) => (Array.isArray(r.courier) ? r.courier[0] : r.courier)).filter(Boolean)
       .map((c: any) => ({ id: c.id, kind: c.kind, carrier: c.carrier, tracking_no: c.tracking_no, received: !!c.received_confirmed_at }));
     setKind(origin); setCouriers(cs);
-    setItems(buildChecklist({ origin, blStatus, docTypes: new Set((d.data ?? []).map((x: any) => x.doc_type)), couriers: cs }));
-  }, [vehicleId, shipmentId, blStatus]);
+    setItems(buildChecklist({ origin, blStatus, hasBooking, docTypes: new Set((d.data ?? []).map((x: any) => x.doc_type)), couriers: cs }));
+  }, [vehicleId, shipmentId, blStatus, hasBooking]);
   useEffect(() => { load(); }, [load]);
 
   const ckind = kind === "manheim" ? "titulo" : "original_bl";

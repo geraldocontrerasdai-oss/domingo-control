@@ -16,7 +16,7 @@ const courierState = (list: CourierInfo[], kind: string): { state: State; detail
   return { state: "falta", detail: "Aún no hay guía de courier" };
 };
 
-export function buildChecklist(o: { origin: OriginKind; blStatus: string; docTypes: Set<string>; couriers: CourierInfo[] }): Item[] {
+export function buildChecklist(o: { origin: OriginKind; blStatus: string; hasBooking?: boolean; docTypes: Set<string>; couriers: CourierInfo[] }): Item[] {
   if (o.origin === "manheim") {
     // Con la etiqueta de Crowley el vehículo ya fue aceptado para el RORO: el título deja de ser necesario.
     const tagged = o.docTypes.has("crowley_tag");
@@ -28,9 +28,11 @@ export function buildChecklist(o: { origin: OriginKind; blStatus: string; docTyp
     ];
   }
   const t = courierState(o.couriers, "original_bl");
+  // Con el número de booking (o BL) basta: la naviera permite rastrear todo con ese número.
   const blOk = o.blStatus === "final";
+  const bl = blOk ? "Definitivo" : o.hasBooking ? "No necesario: ya tiene booking" : o.blStatus === "draft" ? "Solo borrador" : "Sin BL ni booking";
   return [
-    { key: "bl", label: "BL definitivo", state: blOk ? "ok" : "falta", detail: blOk ? "Definitivo" : o.blStatus === "draft" ? "Solo borrador" : "Sin BL", blocking: null },
+    { key: "bl", label: "BL / booking", state: blOk || o.hasBooking ? "ok" : "falta", detail: bl, blocking: null },
     { key: "originals", label: "Documentos originales (courier a Domingo Auto)", state: t.state, detail: t.detail, blocking: "Deben llegar antes que el contenedor para presentar la carga." },
   ];
 }
