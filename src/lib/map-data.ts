@@ -128,7 +128,7 @@ export async function getMapData(): Promise<MapData> {
       num: roro ? (++roroNum > 1 ? `R${roroNum}` : "R") : String(++containerNum),
       name: g.name, voyage: v.voyage_no, mode: roro ? "roro" : "container", carrier: v.carrier,
       event: ev ? EVENTS[ev.event_type] ?? ev.event_type : "Sin eventos todavía",
-      eventAt: ev?.observed_at ?? null, eta: eta?.eta ?? null, etaSource: eta?.source ?? null,
+      eventAt: ev?.observed_at ?? null, eta: ev && FINAL.includes(ev.event_type) ? null : eta?.eta ?? null, etaSource: eta?.source ?? null, // ya descargado: la ETA no aplica
       trackUrl: trackUrl(detectCarrier(v.carrier, first.bl_no, first.booking_no).carrier, first.booking_no ?? first.bl_no),
       trackNumber: first.booking_no ?? first.bl_no ?? null,
       shipmentIds: [...shipmentIds], route: `${first.port_loading} → ${first.port_discharge}`,
