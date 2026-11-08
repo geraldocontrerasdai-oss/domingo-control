@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { buildChecklist, type CourierInfo } from "@/lib/checklist";
 
 export type Priority = "alta" | "media" | "baja";
 export type AlertItem = {
@@ -17,15 +18,28 @@ const fmt = (iso: string) => new Date(iso).toLocaleDateString("es-DO", { day: "n
 export async function getAlerts(): Promise<AlertsData> {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
-  const [prof, veh, ships, events, etas, media, run] = await Promise.all([
+  const [prof, veh, ships, events, etas, media, run, cour, docsQ] = await Promise.all([
     sb.from("profiles").select("role").eq("id", user!.id).single(),
-    sb.from("vehicles").select("id, identifier, make, model, model_year, is_provisional, docs, stage, shipment_id, created_at").is("archived_at", null),
+    sb.from("vehicles").select("id, identifier, make, model, model_year, is_provisional, docs, stage, shipment_id, created_at, origin").is("archived_at", null),
     sb.from("shipments").select("id, booking_no, bl_no, bl_status, voyage_id, voyage:voyages(id, vessel:vessels(name))"),
     sb.from("v_voyage_last_event").select("voyage_id, event_type, occurred_at, observed_at"),
     sb.from("eta_observations").select("voyage_id, eta, observed_at").order("observed_at", { ascending: false }),
     sb.from("vehicle_media").select("vehicle_id").eq("is_primary", true).is("archived_at", null),
     sb.from("settings").select("value").eq("key", "tracking_last_run").maybeSingle(),
+    sb.from("courier_vehicles").select("vehicle_id, courier:courier_shipments(kind, carrier, tracking_no, received_confirmed_at)"),
+    sb.from("documents").select("vehicle_id, shipment_id, doc_type").eq("is_current", true).is("archived_at", null),
   ]);
+  const courOf = new Map<string, CourierInfo[]>();
+  for (const r of (cour.data ?? []) as any[]) {
+    const c = Array.isArray(r.courier) ? r.courier[0] : r.courier;
+    if (c) courOf.set(r.vehicle_id, [...(courOf.get(r.vehicle_id) ?? []), { kind: c.kind, carrier: c.carrier, tracking_no: c.tracking_no, received: !!c.received_confirmed_at }]);
+  }
+  const docsOfVeh = new Map<string, Set<string>>();
+  const docsOfShip = new Map<string, Set<string>>();
+  for (const d of (docsQ.data ?? []) as any[]) {
+    const m = d.vehicle_id ? docsOfVeh : docsOfShip; const k = d.vehicle_id ?? d.shipment_id;
+    if (k) m.set(k, (m.get(k) ?? new Set()).add(d.doc_type));
+  }
 
   const shipOf = new Map((ships.data ?? []).map((s: any) => [s.id, s]));
   const evOf = new Map((events.data ?? []).map((e: any) => [e.voyage_id, e]));
@@ -73,6 +87,33 @@ export async function getAlerts(): Promise<AlertsData> {
         title: `${name(c)} lleva más de ${Math.round(-days(c.created_at))} días en origen sin reserva`,
         detail: c.is_provisional ? "Además no tiene chasis asignado." : "Aún no hay booking ni BL.",
         action: "Confirmar con el proveedor la reserva del embarque." });
+    }
+    // 4b. Documentos originales / título (checklist por origen)
+    const types = new Set([...(docsOfVeh.get(c.id) ?? []), ...(c.shipment_id ? docsOfShip.get(c.shipment_id) ?? [] : [])]);
+    const list = buildChecklist({ origin: c.origin, blStatus: s?.bl_status ?? "none", docTypes: types, couriers: courOf.get(c.id) ?? [] });
+    if (c.origin === "manheim" && c.stage !== "arribado" && c.stage !== "en_transito" && c.stage !== "embarcado") {
+      const t = list.find((i) => i.key === "title")!;
+      if (t.state !== "ok") {
+        items.push({ ...base, id: `titulo-${c.id}`, priority: s || t.state === "falta" && days(c.created_at) < -5 ? "alta" : "media", rule: "Título pendiente",
+          title: `${name(c)} no puede embarcar: falta el título`, detail: t.detail,
+          action: t.state === "falta" ? "Pedir a la subasta que envíe el título por FedEx a Florida y registrar la guía." : "Dar seguimiento a la guía y confirmar cuando llegue a Florida." });
+      }
+    }
+    if (c.origin !== "manheim" && s) {
+      const o = list.find((i) => i.key === "originals")!;
+      if (o.state !== "ok") {
+        const left = eta ? days(eta) : null;
+        if (arrived || (left !== null && left <= 10)) {
+          items.push({ ...base, id: `orig-${c.id}`, priority: "alta", rule: "Originales",
+            title: `${name(c)}: los documentos originales deben llegar antes que el contenedor`,
+            detail: `${vesselOf(s)} · ${arrived ? "ya llegó" : `llega en ${Math.max(0, Math.ceil(left!))} días`} · ${o.detail}`,
+            action: o.state === "falta" ? "Pedir al proveedor el envío urgente por courier y registrar la guía." : "Dar seguimiento a la guía: sin originales no se presenta la carga." });
+        } else if (o.state === "falta" && ev && days(ev.occurred_at ?? ev.observed_at) < -10) {
+          items.push({ ...base, id: `orig-guia-${c.id}`, priority: "media", rule: "Originales",
+            title: `${name(c)}: zarpó hace más de 10 días y no hay guía de los originales`, detail: vesselOf(s),
+            action: "Preguntar al proveedor si ya envió los originales y registrar la guía." });
+        }
+      }
     }
     // 5. Chasis provisional
     if (c.is_provisional) {

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/browser";
 import type { VehicleCard } from "@/lib/map-data";
+import DocChecklist from "@/components/DocChecklist";
 import { BL_STATUS, DOCS, STAGES } from "@/lib/format";
 
 type Doc = { id: string; doc_type: string; version: number; url: string; name: string };
@@ -167,6 +168,7 @@ export default function VehicleDrawer({ car, canEdit, onClose }: { car: VehicleC
             {rows.map(([k, v]) => (
               <div key={k}><dt className="text-[10px] tracking-[0.2em] text-white/40">{k.toUpperCase()}</dt><dd className="mt-0.5 break-words">{v || "—"}</dd></div>
             ))}
+            <DocChecklist vehicleId={car.id} shipmentId={car.shipmentId} blStatus={car.blStatus} canEdit={canEdit} />
             <div>
               <dt className="text-[10px] tracking-[0.2em] text-white/40">CARPETA DE DOCUMENTOS</dt>
               <dd className="mt-1 space-y-1">
