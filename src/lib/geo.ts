@@ -13,6 +13,7 @@ const PORTS: { key: RegExp; ll: Pt }[] = [
   { key: /yokohama|jap[oó]n|japan|tokyo|saitama/i, ll: [139.65, 35.45] },
   { key: /manila|filipinas|philippines/i, ll: [120.97, 14.58] },
   { key: /ho chi minh|c[aá]t l[aá]i|vietnam|viet nam/i, ll: [106.79, 10.76] },
+  { key: /manheim|estados unidos|\busa\b/i, ll: [-97, 33.5] },
   { key: /everglades|uspef/i, ll: [-80.12, 26.09] },
   { key: /haina|dohai|caucedo|docau|santo domingo|dominican|dominicana/i, ll: [-69.9, 18.43] },
 ];
@@ -97,6 +98,7 @@ export const needsPanama = (origin: string | null | undefined) => /yokohama/i.te
 
 // Dónde está un vehículo que todavía no tiene embarque: se ubica por su lugar de origen.
 const ORIGIN_NAMES: { key: RegExp; name: string }[] = [
+  { key: /manheim|estados unidos|\busa\b/i, name: "Estados Unidos (Manheim)" },
   { key: /yokohama|jap[oó]n|japan|tokyo|saitama/i, name: "Japón (Yokohama)" },
   { key: /manila|filipinas|philippines/i, name: "Filipinas (Manila)" },
   { key: /ho chi minh|c[aá]t l[aá]i|vietnam|viet nam/i, name: "Vietnam (Ho Chi Minh)" },
