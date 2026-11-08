@@ -15,8 +15,8 @@ const fmt = (iso: string) => new Date(iso).toLocaleDateString("es-DO", { day: "n
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Las alertas se calculan en el momento con lo que ya está guardado: no hay tabla que mantener
 // ni tarea programada. Cada regla dice qué pasa y qué hacer.
-export async function getAlerts(): Promise<AlertsData> {
-  const sb = await createClient();
+export async function getAlerts(client?: any): Promise<AlertsData> {
+  const sb = client ?? (await createClient());
   const { data: { user } } = await sb.auth.getUser();
   const [prof, veh, ships, events, etas, media, run, cour, docsQ, tev] = await Promise.all([
     sb.from("profiles").select("role").eq("id", user!.id).single(),
