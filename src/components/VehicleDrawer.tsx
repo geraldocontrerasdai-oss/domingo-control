@@ -124,16 +124,16 @@ export default function VehicleDrawer({ car, canEdit, onClose }: { car: VehicleC
           <button onClick={onClose} className="border border-white/30 px-3 py-1 hover:bg-white hover:text-black">Cerrar</button>
         </div>
 
-        <div className="grid md:grid-cols-[1fr_320px] gap-0">
-          <div className="p-5">
-            <div className="aspect-video bg-white/5 border border-white/10 grid place-items-center overflow-hidden">
+        <div className="grid md:grid-cols-[minmax(0,1fr)_320px] gap-0">
+          <div className="p-5 min-w-0">
+            <div className="h-[58vh] min-h-64 w-full bg-white/5 border border-white/10 grid place-items-center overflow-hidden">
               {!m ? <span className="text-white/40 text-sm">Todavía no hay fotos ni videos de este vehículo.</span>
                 : m.kind === "video" ? <video key={m.id} src={m.url} controls className="w-full h-full object-contain" />
                 : /* eslint-disable-next-line @next/next/no-img-element */ <img src={m.url} alt={car.title} className="w-full h-full object-contain" />}
             </div>
 
             {items.length > 0 && (
-              <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
+              <div className="flex gap-2 mt-3 overflow-x-auto pb-1 max-w-full">
                 {items.map((it, i) => (
                   <button key={it.id} onClick={() => setCur(i)}
                     className={`relative shrink-0 w-24 h-16 border ${i === cur ? "border-white" : "border-white/20"} bg-white/5 overflow-hidden`}>
