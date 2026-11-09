@@ -18,12 +18,12 @@ const courierState = (list: CourierInfo[], kind: string): { state: State; detail
 
 export function buildChecklist(o: { origin: OriginKind; blStatus: string; hasBooking?: boolean; docTypes: Set<string>; couriers: CourierInfo[] }): Item[] {
   if (o.origin === "manheim") {
-    // Con la etiqueta de Crowley el vehículo ya fue aceptado para el RORO: el título deja de ser necesario.
+    // Con la etiqueta de Crowley el vehículo ya fue aceptado para el RORO: el título está en mano y el Gate Pass ya se usó.
     const tagged = o.docTypes.has("crowley_tag");
     const t = tagged ? { state: "ok" as State, detail: "No aplica: ya tiene etiqueta de Crowley" } : courierState(o.couriers, "titulo");
     return [
       { key: "title", label: "Título físico (FedEx a Florida)", state: t.state, detail: t.detail, blocking: "No se puede embarcar en el RORO sin el título." },
-      { key: "gate_pass", label: "Gate Pass", state: o.docTypes.has("gate_pass") ? "ok" : "falta", detail: o.docTypes.has("gate_pass") ? "En la carpeta" : "Sin subir", blocking: null },
+      { key: "gate_pass", label: "Gate Pass", state: o.docTypes.has("gate_pass") || tagged ? "ok" : "falta", detail: o.docTypes.has("gate_pass") ? "En la carpeta" : tagged ? "No aplica: ya usado (tiene etiqueta de Crowley)" : "Sin subir", blocking: null },
       { key: "crowley_tag", label: "Foto con código Crowley", state: o.docTypes.has("crowley_tag") ? "ok" : "falta", detail: o.docTypes.has("crowley_tag") ? "En la carpeta" : "Sin subir", blocking: null },
     ];
   }
