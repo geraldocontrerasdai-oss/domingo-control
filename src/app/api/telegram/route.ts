@@ -123,6 +123,22 @@ async function saveMedia(sb: SupabaseClient, v: Veh, buf: Buffer, kind: "photo" 
 async function handleMedia(sb: SupabaseClient, chat: number, msg: any) {
   const mgid: string | undefined = msg.media_group_id;
   const caption: string = (msg.caption ?? "").trim();
+  const isVideo = !!msg.video || msg.document?.mime_type?.startsWith("video/");
+  const fileId = msg.photo ? msg.photo[msg.photo.length - 1].file_id : (msg.video ?? msg.document).file_id;
+  let preloaded: Buffer | null = null;
+
+  // Una foto suelta y sin descripción puede ser un documento (captura de DHL, BL, título…): se lee antes de decidir.
+  // Los álbumes se tratan como fotos del vehículo, para no gastar una lectura por cada foto.
+  if (msg.photo && !mgid && !caption) {
+    const got = await download(fileId);
+    if ("error" in got) { await say(chat, got.error); return; }
+    preloaded = got.buf;
+    try {
+      const r = await analyzeDocument(got.buf, "image/jpeg");
+      if (r.doc_type !== "vehicle_photo" && r.doc_type !== "other") return void (await processAnalysis(sb, chat, r, got.buf, "image/jpeg", fileId, "foto.jpg"));
+    } catch { /* si la IA falla, se guarda como foto del vehículo */ }
+  }
+
   let v: Veh | null = null;
   if (caption) {
     const found = await findVehicles(sb, caption);
@@ -134,12 +150,14 @@ async function handleMedia(sb: SupabaseClient, chat: number, msg: any) {
     if (await firstOfGroup(mgid ? mgid + "n" : undefined)) await say(chat, "¿De qué vehículo son? Elige uno con /v (por ejemplo /v 200779) y vuelve a mandarlas. También puedes poner los últimos dígitos del chasis en la descripción de la foto.");
     return;
   }
-  const isVideo = !!msg.video || msg.document?.mime_type?.startsWith("video/");
-  const fileId = msg.photo ? msg.photo[msg.photo.length - 1].file_id : (msg.video ?? msg.document).file_id;
-  const got = await download(fileId);
-  if ("error" in got) { await say(chat, isVideo ? "Ese video pesa más de 20 MB y Telegram no me deja bajarlo. Súbelo desde el expediente en la web." : got.error); return; }
+  let buf = preloaded;
+  if (!buf) {
+    const got = await download(fileId);
+    if ("error" in got) { await say(chat, isVideo ? "Ese video pesa más de 20 MB y Telegram no me deja bajarlo. Súbelo desde el expediente en la web." : got.error); return; }
+    buf = got.buf;
+  }
   const ct = msg.photo ? "image/jpeg" : (msg.video?.mime_type ?? msg.document?.mime_type ?? (isVideo ? "video/mp4" : "image/jpeg"));
-  const err = await saveMedia(sb, v, got.buf, isVideo ? "video" : "photo", ct);
+  const err = await saveMedia(sb, v, buf, isVideo ? "video" : "photo", ct);
   if (err) { await say(chat, `No pude guardar: ${err}`); return; }
   if (await firstOfGroup(mgid)) await say(chat, mgid ? `📸 Guardando el álbum en ${short(v)}. Con /estado ves cuántas hay.` : `${isVideo ? "🎥" : "📸"} Guardado en ${short(v)}.`);
 }
@@ -168,31 +186,75 @@ async function handleDocument(sb: SupabaseClient, chat: number, msg: any) {
   const got = await download(d.file_id);
   if ("error" in got) { await say(chat, "Ese archivo pesa más de 20 MB. Comprímelo o súbelo desde la Bandeja."); return; }
   await say(chat, "Leyendo el documento…");
-  let r: any;
+  let r: any, buf = got.buf, mt = mime;
   try {
-    let buf = got.buf, mt = mime;
     if (mt.startsWith("image/") && buf.length > 4_000_000) { buf = await sharp(buf).rotate().resize({ width: 2400, height: 2400, fit: "inside" }).jpeg({ quality: 85 }).toBuffer(); mt = "image/jpeg"; }
     r = await analyzeDocument(buf, mt);
   } catch (e) { await say(chat, `No pude leerlo: ${e instanceof Error ? e.message : "error"}`); return; }
+  await processAnalysis(sb, chat, r, got.buf, mime, d.file_id, d.file_name ?? `documento.${mime === "application/pdf" ? "pdf" : "jpg"}`);
+}
 
-  // Una foto del vehículo enviada como archivo: va a la carpeta del vehículo elegido
+// Qué hacer con lo que la IA leyó: foto del vehículo, guía de courier o documento con chasis para la bandeja.
+async function processAnalysis(sb: SupabaseClient, chat: number, r: any, original: Buffer, mime: string, fileId: string, fileName: string) {
   if (r.doc_type === "vehicle_photo") {
     const byVin = r.vehicles?.[0]?.vin ? (await findVehicles(sb, r.vehicles[0].vin))[0] : null;
     const v = byVin ?? (await activeVehicle(sb, chat));
     if (!v) { await say(chat, "Parece una foto de un vehículo. Elige cuál con /v y vuelve a mandarla."); return; }
-    const err = await saveMedia(sb, v, got.buf, "photo", mime);
+    const err = await saveMedia(sb, v, original, "photo", mime);
     await say(chat, err ? `No pude guardar: ${err}` : `📸 Guardada en ${short(v)}.`);
     return;
   }
-  if (!r.vehicles?.length) { await say(chat, `No encontré ningún chasis en el documento.${r.notes ? "\n" + r.notes : ""}\nSúbelo desde la Bandeja si necesitas completarlo a mano.`); return; }
+  // Guía de courier sin chasis (captura de DHL / FedEx): se anota al vehículo elegido
+  if (r.courier?.tracking_no && !r.vehicles?.some((v: any) => v.vin)) {
+    await courierFlow(sb, chat, { carrier: r.courier.carrier, tracking: r.courier.tracking_no, kind: r.courier.kind });
+    return;
+  }
+  if (!r.vehicles?.length) { await say(chat, `No encontré ningún chasis ni número de guía en el documento.${r.notes ? "\n" + r.notes : ""}\nSúbelo desde la Bandeja si necesitas completarlo a mano.`); return; }
   const id = randomUUID();
-  await setState(`tg_pend_${id}`, { chat, result: r, file_id: d.file_id, file_name: d.file_name ?? `documento.${mime === "application/pdf" ? "pdf" : "jpg"}`, mime, t: Date.now() });
+  await setState(`tg_pend_${id}`, { chat, result: r, file_id: fileId, file_name: fileName, mime, t: Date.now() });
   await say(chat, summary(r) + "\n\n¿Lo guardo?", { reply_markup: { inline_keyboard: [[{ text: "✅ Guardar", callback_data: `ok:${id}` }, { text: "✖ Descartar", callback_data: `no:${id}` }]] } });
+}
+
+// ───────── guías de courier (DHL / FedEx) ─────────
+const guessCarrier = (digits: string): string => (digits.length === 10 || digits.length === 11 ? "dhl" : [12, 15, 20, 22].includes(digits.length) ? "fedex" : "other");
+
+async function courierFlow(sb: SupabaseClient, chat: number, c: { carrier?: string; tracking: string; kind?: string }) {
+  const v = await activeVehicle(sb, chat);
+  if (!v) { await say(chat, `Leí la guía ${c.tracking}, pero no sé a qué vehículo va. Elige uno con /v y vuelve a mandarla.`); return; }
+  const tracking = String(c.tracking).replace(/[\s-]/g, "");
+  const carrier = ["dhl", "fedex"].includes(String(c.carrier).toLowerCase()) ? String(c.carrier).toLowerCase() : guessCarrier(tracking.replace(/\D/g, ""));
+  const { data: row } = await sb.from("vehicles").select("origin, shipment_id").eq("id", v.id).single();
+  const kind = c.kind === "titulo" || c.kind === "original_bl" ? c.kind : (row as any)?.origin === "manheim" ? "titulo" : "original_bl";
+  let ids = [v.id];
+  if (kind === "original_bl" && (row as any)?.shipment_id) {
+    const sib = await sb.from("vehicles").select("id").eq("shipment_id", (row as any).shipment_id).is("archived_at", null);
+    ids = (sib.data ?? []).map((x: any) => x.id);
+  }
+  const id = randomUUID();
+  await setState(`tg_pend_${id}`, { type: "courier", chat, carrier, tracking, kind, ids, t: Date.now() });
+  await say(chat, `📦 Guía ${carrier.toUpperCase()} ${tracking}\n${kind === "titulo" ? "Título físico" : "Documentos originales"} de ${short(v)}${ids.length > 1 ? ` y ${ids.length - 1} vehículo(s) más del mismo embarque` : ""}.\n\n¿La guardo?`, {
+    reply_markup: { inline_keyboard: [[{ text: "✅ Guardar guía", callback_data: `ok:${id}` }, { text: "✖ Descartar", callback_data: `no:${id}` }]] },
+  });
+}
+
+async function saveCourier(sb: SupabaseClient, chat: number, id: string, p: any) {
+  let cid: string | undefined;
+  const ex = await sb.from("courier_shipments").select("id").eq("carrier", p.carrier).eq("tracking_no", p.tracking).maybeSingle();
+  if (ex.data) cid = ex.data.id;
+  else {
+    const ins = await sb.from("courier_shipments").insert({ carrier: p.carrier, tracking_no: p.tracking, kind: p.kind }).select("id").single();
+    if (ins.error) { await say(chat, `No pude guardar la guía: ${ins.error.message}`); return; }
+    cid = ins.data.id;
+  }
+  const link = await sb.from("courier_vehicles").upsert(p.ids.map((vehicle_id: string) => ({ courier_id: cid, vehicle_id })), { onConflict: "courier_id,vehicle_id", ignoreDuplicates: true });
+  await delState(`tg_pend_${id}`);
+  await say(chat, link.error ? `No pude guardar la guía: ${link.error.message}` : `✅ Guía ${p.carrier.toUpperCase()} ${p.tracking} guardada para ${p.ids.length} vehículo(s). Cuando llegue el paquete, confírmalo en el expediente con "Ya recibí…".`);
 }
 
 async function commitPending(sb: SupabaseClient, chat: number, id: string) {
   const p = await getState<any>(`tg_pend_${id}`);
   if (!p) { await say(chat, "Ese documento ya se guardó o venció. Vuelve a enviarlo."); return; }
+  if (p.type === "courier") return saveCourier(sb, chat, id, p);
   const r = p.result;
   const vehicles = r.vehicles.filter((v: any) => v.vin).map((v: any) => ({ ...v, vin: normalizeVin(v.vin) }));
   let storage_path: string | undefined, hash: string | undefined;
@@ -292,7 +354,16 @@ async function handle(upd: any) {
   }
   if (msg.photo || msg.video || msg.document?.mime_type?.startsWith("video/")) return void (await handleMedia(sb, chat, msg));
   if (msg.document) return void (await handleDocument(sb, chat, msg));
-  if (text) return void (await chooseVehicle(sb, chat, text)); // escribir un chasis a secas equivale a /v
+  if (text) {
+    // Un número de guía escrito a mano ("DHL 8296478245", "guía 8296478245" o solo el número largo)
+    const digits = (text.match(/\d[\d\s-]{8,24}\d/)?.[0] ?? "").replace(/\D/g, "");
+    const word = /\b(dhl|fedex|fed\s?ex|fdx|gu[ií]a|track(ing)?|rastreo)\b/i.test(text);
+    if (digits.length >= 9 && digits.length <= 22 && (word || (/^[\d\s-]+$/.test(text) && digits.length >= 10))) {
+      const carrier = /dhl/i.test(text) ? "dhl" : /fed\s?ex|fdx/i.test(text) ? "fedex" : undefined;
+      return void (await courierFlow(sb, chat, { carrier, tracking: digits, kind: /t[ií]tulo/i.test(text) ? "titulo" : undefined }));
+    }
+    return void (await chooseVehicle(sb, chat, text)); // escribir un chasis a secas equivale a /v
+  }
 }
 
 export async function POST(req: Request) {

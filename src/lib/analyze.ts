@@ -52,6 +52,8 @@ REGLAS ESTRICTAS:
 - El documento puede ser de CUALQUIER naviera (MSC, ONE, Evergreen, Hapag-Lloyd, Maersk, CMA CGM, COSCO, OOCL, ZIM, Yang Ming, HMM, Crowley u otra). Cada una usa su propio formato: busca los datos por su significado, no por la posición. Los primeros 4 caracteres del número de BL suelen ser el código de la naviera.
 - bl_status "final" si es el BL original o definitivo, o un Sea Waybill / Express Release; "draft" si dice DRAFT, borrador o copia no negociable.
 - Si el BL tiene varias páginas o listas de contenedores, recorre todas. Un BL puede traer varios contenedores y muchos chasis.
+- Una captura o guía de DHL/FedEx es courier_receipt: courier.carrier (dhl o fedex), courier.tracking_no (el número de guía o waybill, solo dígitos) y courier.kind "otro" si no sabes. No inventes vehículos: deja vehicles vacío.
+- Una foto de un vehículo (exterior, interior, ruedas, motor, tablero) es vehicle_photo con vehicles vacío. Si la foto es de una captura de pantalla o un papel, NO es vehicle_photo.
 - Si un dato no aparece, omítelo. No inventes.`;
 
 async function ask(model: string, mediaType: string, b64: string) {
@@ -79,7 +81,10 @@ export async function analyzeDocument(buf: Buffer, mediaType: string): Promise<a
   const b64 = buf.toString("base64");
   // Modelo económico primero; si no encuentra ningún chasis, reintenta con el más capaz
   let out = await ask("claude-haiku-5-5", mediaType, b64);
-  if (!Array.isArray(out.vehicles) || out.vehicles.length === 0) out = await ask("claude-sonnet-5-5", mediaType, b64);
+  // Solo se reintenta con el modelo grande cuando parecía un documento con chasis y no se encontró ninguno
+  const noVin = !Array.isArray(out.vehicles) || out.vehicles.length === 0;
+  const expectsNone = out.doc_type === "vehicle_photo" || out.doc_type === "other" || (out.doc_type === "courier_receipt" && (out.courier as any)?.tracking_no);
+  if (noVin && !expectsNone) out = await ask("claude-sonnet-5-5", mediaType, b64);
   const clean: any = stripMoney(out);
   clean.vehicles = (clean.vehicles ?? []).map((v: any) => {
     const vin = normalizeVin(String(v.vin ?? ""));
