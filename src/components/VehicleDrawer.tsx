@@ -36,6 +36,31 @@ export default function VehicleDrawer({ car, canEdit, onClose }: { car: VehicleC
   useEffect(() => {
     createClient().from("vehicles").select("invoice_confirmed_at").eq("id", car.id).single().then(({ data, error }) => { if (!error && data) setInv((data as any).invoice_confirmed_at ?? null); });
   }, [car.id]);
+  const [supId, setSupId] = useState<string>("");
+  const [sups, setSups] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    const sb = createClient();
+    sb.from("suppliers").select("id, name").order("name").then(({ data }) => setSups((data as any) ?? []));
+    sb.from("vehicles").select("supplier_id").eq("id", car.id).single().then(({ data }) => setSupId((data as any)?.supplier_id ?? ""));
+  }, [car.id]);
+  async function changeSupplier(val: string) {
+    const sb = createClient();
+    let id: string | null = val || null;
+    if (val === "__new") {
+      const name = (prompt("Nombre del nuevo proveedor") ?? "").trim();
+      if (!name) return;
+      const hit = sups.find((x) => x.name.toLowerCase().replace(/[^a-z0-9]+/g, "") === name.toLowerCase().replace(/[^a-z0-9]+/g, ""));
+      if (hit) id = hit.id;
+      else {
+        const { data, error } = await sb.from("suppliers").insert({ name }).select("id, name").single();
+        if (error || !data) { setMsg(error?.message ?? "No se pudo crear el proveedor."); return; }
+        setSups((p) => [...p, data as any].sort((a, b) => a.name.localeCompare(b.name))); id = (data as any).id;
+      }
+    }
+    const { error } = await sb.from("vehicles").update({ supplier_id: id }).eq("id", car.id);
+    if (error) { setMsg(error.message); return; }
+    setSupId(id ?? ""); setMsg("Proveedor actualizado."); router.refresh();
+  }
   async function confirmInvoice() {
     setBusy(true);
     const r = await fetch("/api/vehicles/merge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: car.id }) });
@@ -135,6 +160,15 @@ export default function VehicleDrawer({ car, canEdit, onClose }: { car: VehicleC
               : <div className="text-xs text-amber-300/90 mt-2 flex items-center gap-2 flex-wrap">Sin confirmar: falta su factura
                   {canEdit && <button disabled={busy} onClick={confirmInvoice} className="border border-white/30 px-2 py-0.5 text-white/80 hover:bg-white hover:text-black disabled:opacity-40">Ya lo verifiqué, confirmar</button>}
                 </div>)}
+            <div className="text-xs text-white/60 mt-2 flex items-center gap-2 flex-wrap">Proveedor:
+              {canEdit
+                ? <select value={supId} onChange={(e) => changeSupplier(e.target.value)} className="bg-black border border-white/30 px-2 py-1 text-white/90">
+                    <option value="">Sin proveedor</option>
+                    {sups.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                    <option value="__new">+ Nuevo proveedor…</option>
+                  </select>
+                : <span className="text-white/90">{sups.find((x) => x.id === supId)?.name ?? "Sin proveedor"}</span>}
+            </div>
           </div>
           <button onClick={onClose} className="border border-white/30 px-3 py-1 hover:bg-white hover:text-black">Cerrar</button>
         </div>

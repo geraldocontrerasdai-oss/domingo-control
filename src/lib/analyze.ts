@@ -1,5 +1,7 @@
 import { normalizeVin, stripMoney, vinWarnings } from "@/lib/vin";
 import { detectCarrier } from "@/lib/carriers";
+import { canonicalSupplier } from "@/lib/suppliers";
+import { adminClient } from "@/lib/telegram";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const TOOL = {
@@ -18,7 +20,7 @@ const TOOL = {
             vin: { type: "string", description: "Chasis o VIN exactamente como aparece" },
             year: { type: "integer" }, make: { type: "string" }, model: { type: "string" }, color: { type: "string" },
             origin_place: { type: "string", description: "Lugar de origen/recogida o proveedor" },
-            supplier: { type: "string", description: "Nombre del vendedor o shipper, sin datos bancarios" },
+            supplier: { type: "string", description: "Empresa que vende/exporta el vehículo y emite la factura (ej. Alphinity Corporation, Zulfiqar Motors, Kobe Motor Company, Vigo4u). En facturas de Manheim / Cox Automotive el proveedor es \"Manheim\" (NO el dealer que figura como OWNER). Sin datos bancarios." },
             container_no: { type: "string" },
           },
           required: ["vin"],
@@ -86,9 +88,12 @@ export async function analyzeDocument(buf: Buffer, mediaType: string): Promise<a
   const expectsNone = out.doc_type === "vehicle_photo" || out.doc_type === "other" || (out.doc_type === "courier_receipt" && (out.courier as any)?.tracking_no);
   if (noVin && !expectsNone) out = await ask("claude-sonnet-5-5", mediaType, b64);
   const clean: any = stripMoney(out);
+  let known: string[] = [];
+  try { const { data } = await adminClient().from("suppliers").select("name"); known = (data ?? []).map((x: any) => x.name); } catch {}
   clean.vehicles = (clean.vehicles ?? []).map((v: any) => {
     const vin = normalizeVin(String(v.vin ?? ""));
-    return { ...v, vin, warnings: vinWarnings(vin) };
+    const supplier = canonicalSupplier(v.supplier, known) ?? undefined;
+    return { ...v, supplier, vin, warnings: vinWarnings(vin) };
   });
   if (clean.shipment?.containers) {
     clean.shipment.containers = clean.shipment.containers.map((c: string) => c.toUpperCase().replace(/[^A-Z0-9]/g, ""));

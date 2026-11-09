@@ -4,13 +4,15 @@ import type { VehicleCard } from "@/lib/map-data";
 import { STAGES } from "@/lib/format";
 import VehicleDrawer from "./VehicleDrawer";
 
-type Row = VehicleCard & { vessel: string | null; alert: "alta" | "media" | "baja" | null; alertCount: number; noInvoice: boolean };
+type Row = VehicleCard & { vessel: string | null; alert: "alta" | "media" | "baja" | null; alertCount: number; noInvoice: boolean; supplier: string | null };
 const DOT = { alta: "#fca5a5", media: "#fde68a", baja: "#7dd3fc" } as const;
 
 export default function VehicleList({ cards, role, initialQuery }: { cards: Row[]; role: string; initialQuery?: string }) {
   const [q, setQ] = useState(initialQuery ?? "");
   const [stage, setStage] = useState("");
   const [flt, setFlt] = useState("");
+  const [sup, setSup] = useState("");
+  const suppliers = useMemo(() => { const m = new Map<string, number>(); cards.forEach((c) => { const k = c.supplier ?? ""; m.set(k, (m.get(k) ?? 0) + 1); }); return [...m.entries()].sort((a, b) => (a[0] === "" ? 1 : b[0] === "" ? -1 : a[0].localeCompare(b[0]))); }, [cards]);
   const [sel, setSel] = useState<Row | null>(null);
   const canEdit = role === "admin" || role === "operaciones";
 
@@ -18,6 +20,7 @@ export default function VehicleList({ cards, role, initialQuery }: { cards: Row[
     const t = q.trim().toUpperCase().replace(/O/g, "0");
     return cards.filter((c) => {
       if (stage && c.stage !== stage) return false;
+      if (sup === "__none") { if (c.supplier) return false; } else if (sup && c.supplier !== sup) return false;
       if (flt === "alerta" && !c.alert) return false;
       if (flt === "urgente" && c.alert !== "alta") return false;
       if (flt === "docs" && c.docs === "completo") return false;
@@ -26,7 +29,7 @@ export default function VehicleList({ cards, role, initialQuery }: { cards: Row[
       if (flt === "origen" && c.shipmentId) return false;
       if (!t) return true;
       // Busca por cualquier parte del chasis (por ejemplo, los últimos 6) o por modelo, buque, BL, booking
-      const hay = `${c.identifier} ${c.title} ${c.vessel ?? ""} ${c.bl ?? ""} ${c.booking} ${c.container ?? ""}`.toUpperCase().replace(/O/g, "0");
+      const hay = `${c.identifier} ${c.title} ${c.vessel ?? ""} ${c.bl ?? ""} ${c.booking} ${c.container ?? ""} ${c.supplier ?? ""}`.toUpperCase().replace(/O/g, "0");
       return hay.includes(t);
     });
   }, [cards, q, stage, flt]);
@@ -39,6 +42,10 @@ export default function VehicleList({ cards, role, initialQuery }: { cards: Row[
         <select value={stage} onChange={(e) => setStage(e.target.value)} className="bg-black border border-white/30 px-3 py-2 text-sm">
           <option value="">Todas las etapas</option>
           {Object.entries(STAGES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+        <select value={sup} onChange={(e) => setSup(e.target.value)} className="bg-black border border-white/30 px-3 py-2 text-sm">
+          <option value="">Todos los proveedores</option>
+          {suppliers.map(([n, k]) => <option key={n || "__none"} value={n || "__none"}>{n || "Sin proveedor"} · {k}</option>)}
         </select>
         <span className="text-xs text-white/40">{rows.length} de {cards.length}</span>
       </div>
@@ -58,7 +65,7 @@ export default function VehicleList({ cards, role, initialQuery }: { cards: Row[
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-sm truncate">{c.title}{c.color ? <span className="text-white/40"> · {c.color}</span> : null}</div>
-              <div className="font-mono text-xs text-white/50">{c.identifier}</div>
+              <div className="font-mono text-xs text-white/50">{c.identifier}{c.supplier ? <span className="font-sans text-white/35"> · {c.supplier}</span> : null}</div>
             </div>
             <div className="hidden md:block w-56 text-xs text-white/45 truncate">{c.vessel ?? "Sin buque asignado"}<br />{c.bl ? `BL ${c.bl}` : c.booking}</div>
             <div className="text-xs w-36 text-right text-white/70">{STAGES[c.stage] ?? c.stage}
