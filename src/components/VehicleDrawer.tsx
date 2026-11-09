@@ -32,6 +32,16 @@ export default function VehicleDrawer({ car, canEdit, onClose }: { car: VehicleC
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [docs, setDocs] = useState<Doc[]>([]);
+  const [inv, setInv] = useState<string | null | undefined>(undefined); // undefined = cargando o campo inexistente
+  useEffect(() => {
+    createClient().from("vehicles").select("invoice_confirmed_at").eq("id", car.id).single().then(({ data, error }) => { if (!error && data) setInv((data as any).invoice_confirmed_at ?? null); });
+  }, [car.id]);
+  async function confirmInvoice() {
+    setBusy(true);
+    const r = await fetch("/api/vehicles/merge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: car.id }) });
+    setBusy(false);
+    if (r.ok) { setInv(new Date().toISOString()); router.refresh(); } else setMsg("No se pudo confirmar.");
+  }
 
   const load = useCallback(async () => {
     const sb = createClient();
@@ -120,6 +130,11 @@ export default function VehicleDrawer({ car, canEdit, onClose }: { car: VehicleC
             <div className="text-[10px] tracking-[0.3em] text-white/50">EXPEDIENTE{car.provisional ? " · PROVISIONAL" : ""}</div>
             <h2 className="text-xl mt-1">{car.title}</h2>
             <div className="text-white/50 text-sm font-mono mt-1">{car.identifier}</div>
+            {inv !== undefined && (inv
+              ? <div className="text-xs text-emerald-300/90 mt-2">✓ Confirmado por factura</div>
+              : <div className="text-xs text-amber-300/90 mt-2 flex items-center gap-2 flex-wrap">Sin confirmar: falta su factura
+                  {canEdit && <button disabled={busy} onClick={confirmInvoice} className="border border-white/30 px-2 py-0.5 text-white/80 hover:bg-white hover:text-black disabled:opacity-40">Ya lo verifiqué, confirmar</button>}
+                </div>)}
           </div>
           <button onClick={onClose} className="border border-white/30 px-3 py-1 hover:bg-white hover:text-black">Cerrar</button>
         </div>
