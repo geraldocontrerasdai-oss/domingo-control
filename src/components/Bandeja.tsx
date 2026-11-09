@@ -1,11 +1,12 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/browser";
 import { normalizeVin, vinWarnings } from "@/lib/vin";
+import { loadIndex, matchVin, label as vlabel, type VRow } from "@/lib/vin-match";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type Veh = { vin: string; year?: number; make?: string; model?: string; color?: string; origin_place?: string; supplier?: string; container_no?: string; warnings?: string[] };
+type Veh = { vin: string; year?: number; make?: string; model?: string; color?: string; origin_place?: string; supplier?: string; container_no?: string; warnings?: string[]; sameAs?: { id: string; identifier: string; shipment_id: string | null; orig: string } };
 type Result = { carrier_info?: { name: string | null; known: boolean }; doc_type: string; origin?: string; vehicles: Veh[]; shipment?: any; courier?: any; notes?: string };
 type Item = { id: string; file: File; status: "analyzing" | "ready" | "error" | "saved"; error?: string; result?: Result; note?: string };
 
@@ -15,6 +16,8 @@ const TYPES: Record<string, string> = {
 };
 const FOLDER: Record<string, string> = { bl: "bl", gate_pass: "gate-pass", crowley_tag: "etiqueta-crowley", title: "titulo", courier_receipt: "courier" };
 const STORED = Object.keys(FOLDER);
+const SINGLE = ["crowley_tag", "gate_pass", "title"];
+const skelDiff = (a: string, b: string) => a.replace(/[OQ]/g, "0").replace(/I/g, "1") !== b.replace(/[OQ]/g, "0").replace(/I/g, "1");
 
 async function sha256(f: File) {
   const h = await crypto.subtle.digest("SHA-256", await f.arrayBuffer());
@@ -26,6 +29,8 @@ export default function Bandeja() {
   const [msg, setMsg] = useState("");
   const [saving, setSaving] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const [index, setIndex] = useState<VRow[]>([]);
+  useEffect(() => { loadIndex(createClient()).then(setIndex); }, []);
 
   const patch = (id: string, f: (i: Item) => Item) => setItems((l) => l.map((i) => (i.id === id ? f(i) : i)));
   const edit = (id: string, f: (r: Result) => void) => patch(id, (i) => { const r = structuredClone(i.result!); f(r); return { ...i, result: r }; });
@@ -56,10 +61,27 @@ export default function Bandeja() {
     const ready = items.filter((i) => i.status === "ready");
     try {
       const payload: any[] = [];
+      const renames: { id: string; vin: string }[] = [];
+      const invVins: string[] = [];
+      let sinFactura = 0;
       const photos: { item: Item; vin: string }[] = [];
       for (const it of ready) {
         const r = it.result!;
-        const vehicles = r.vehicles.filter((v) => v.vin).map((v) => ({ ...v, vin: normalizeVin(v.vin) }));
+        const isInv = r.doc_type === "invoice";
+        let shipment = r.shipment;
+        const vehicles = r.vehicles.filter((v) => v.vin).map((v) => {
+          const vin = normalizeVin(v.vin);
+          const m = matchVin(vin, index, { isInvoice: isInv, make: v.make });
+          if (m.exact) { if (m.exact.shipment_id && SINGLE.includes(r.doc_type)) shipment = {}; return { ...v, vin: m.exact.identifier }; }
+          if (v.sameAs) {
+            if (v.sameAs.shipment_id && SINGLE.includes(r.doc_type)) shipment = {};
+            if (isInv && skelDiff(vin, v.sameAs.identifier)) renames.push({ id: v.sameAs.id, vin });
+            return { ...v, vin: v.sameAs.identifier };
+          }
+          if (!isInv) sinFactura++;
+          return { ...v, vin };
+        });
+        invVins.push(...(isInv ? vehicles.map((v) => renames.find((x) => index.find((i) => i.id === x.id)?.identifier === v.vin)?.vin ?? v.vin) : []));
         let storage_path: string | undefined, hash: string | undefined;
         if (r.doc_type === "vehicle_photo") { if (vehicles[0]) photos.push({ item: it, vin: vehicles[0].vin }); continue; }
         if (STORED.includes(r.doc_type)) {
@@ -69,10 +91,15 @@ export default function Bandeja() {
           const up = await sb.storage.from("documents").upload(storage_path, it.file, { contentType: it.file.type, upsert: false });
           if (up.error && !/exists/i.test(up.error.message)) throw new Error(`${it.file.name}: ${up.error.message}`);
         }
-        payload.push({ doc_type: r.doc_type, origin: r.origin, shipment: r.shipment, courier: r.courier, vehicles, storage_path, sha256: hash });
+        payload.push({ doc_type: r.doc_type, origin: r.origin, shipment, courier: r.courier, vehicles, storage_path, sha256: hash });
       }
       const { data, error } = await sb.rpc("intake_commit", { p_items: payload });
       if (error) throw new Error(/sha256/.test(error.message) ? "Uno de los documentos ya estaba cargado." : error.message);
+
+      // La factura manda: corrige el chasis registrado si estaba mal leído y confirma el vehículo
+      for (const x of renames) await sb.from("vehicles").update({ identifier: x.vin, id_kind: x.vin.length === 17 ? "vin" : "chassis" }).eq("id", x.id);
+      if (invVins.length) await sb.from("vehicles").update({ invoice_confirmed_at: new Date().toISOString() }).in("identifier", invVins).is("invoice_confirmed_at", null);
+      loadIndex(sb).then(setIndex);
 
       let fotos = 0;
       for (const p of photos) {
@@ -83,7 +110,7 @@ export default function Bandeja() {
         if (!up.error) { await sb.from("vehicle_media").insert({ vehicle_id: v.id, kind: "photo", storage_path: path, content_type: p.item.file.type, size_bytes: p.item.file.size }); fotos++; }
       }
       setItems((l) => l.map((i) => (i.status === "ready" ? { ...i, status: "saved" } : i)));
-      setMsg(`Listo: ${data.vehicles_new} vehículo(s) nuevo(s), ${data.vehicles_updated} actualizado(s), ${data.shipments_new} embarque(s), ${data.documents} documento(s) guardado(s)${fotos ? `, ${fotos} foto(s)` : ""}.`);
+      setMsg(`Listo: ${data.vehicles_new} vehículo(s) nuevo(s), ${data.vehicles_updated} actualizado(s), ${data.shipments_new} embarque(s), ${data.documents} documento(s) guardado(s)${fotos ? `, ${fotos} foto(s)` : ""}.${sinFactura ? ` ⚠ ${sinFactura} vehículo(s) quedaron sin confirmar: falta subir su factura.` : ""}`);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "No se pudo guardar");
     }
@@ -169,13 +196,24 @@ export default function Bandeja() {
                     {r.vehicles.map((v, idx) => (
                       <div key={idx} className="mb-2">
                         <div className="grid grid-cols-6 gap-2">
-                          <input className={`${field} col-span-2 font-mono`} value={v.vin} onChange={(e) => edit(it.id, (x) => { const n = normalizeVin(e.target.value); x.vehicles[idx].vin = n; x.vehicles[idx].warnings = vinWarnings(n); })} />
+                          <input className={`${field} col-span-2 font-mono`} value={v.vin} onChange={(e) => edit(it.id, (x) => { const n = normalizeVin(e.target.value); x.vehicles[idx].vin = n; x.vehicles[idx].sameAs = undefined; x.vehicles[idx].warnings = vinWarnings(n); })} />
                           {(["year", "make", "model", "color"] as const).map((k) => (
                             <input key={k} className={field} placeholder={k === "year" ? "Año" : k === "make" ? "Marca" : k === "model" ? "Modelo" : "Color"} value={(v as any)[k] ?? ""}
                               onChange={(e) => edit(it.id, (x) => { (x.vehicles[idx] as any)[k] = k === "year" ? Number(e.target.value) || undefined : e.target.value; })} />
                           ))}
                         </div>
                         {(v.warnings ?? []).map((w) => <div key={w} className="text-xs text-amber-200 mt-1">⚠ {w}</div>)}
+                        {(() => {
+                          if (!v.vin) return null;
+                          const m = matchVin(v.vin, index, { isInvoice: r.doc_type === "invoice", make: v.make });
+                          if (m.exact) return <div className="text-xs text-emerald-300/90 mt-1">✓ Ya está registrado: {vlabel(m.exact)}{m.exact.invoice_confirmed_at ? " (confirmado por factura)" : ""}. Se completará su expediente.</div>;
+                          if (v.sameAs) return <div className="text-xs text-emerald-300/90 mt-1">↪ Se usará el vehículo ya registrado {v.sameAs.identifier}{r.doc_type === "invoice" && skelDiff(v.vin, v.sameAs.identifier) ? ", corrigiendo su chasis con el de la factura" : ""}. <button className="underline text-white/60" onClick={() => edit(it.id, (x) => { x.vehicles[idx].sameAs = undefined; })}>deshacer</button></div>;
+                          return m.similar.map((c) => (
+                            <div key={c.row.id} className="text-xs text-amber-200 mt-1">⚠ Se parece a {vlabel(c.row)} <span className="font-mono">{c.row.identifier}</span> ({c.why}). ¿Es el mismo?{" "}
+                              <button className="underline text-white" onClick={() => edit(it.id, (x) => { x.vehicles[idx].sameAs = { id: c.row.id, identifier: c.row.identifier, shipment_id: c.row.shipment_id, orig: v.vin }; })}>Sí, es el mismo</button></div>
+                          ));
+                        })()}
+                        {!["invoice", "vehicle_photo"].includes(r.doc_type) && v.vin && !matchVin(v.vin, index, { isInvoice: false, make: v.make }).exact && !v.sameAs && <div className="text-xs text-white/40 mt-1">Vehículo nuevo sin factura: quedará "sin confirmar" hasta que subas su factura.</div>}
                       </div>
                     ))}
                   </div>

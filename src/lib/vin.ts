@@ -6,7 +6,11 @@ const MAP: Record<string, number> = {
 const WEIGHTS = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2];
 
 // Los BL escriben la letra O donde la factura tiene cero: se normaliza a cero.
-export const normalizeVin = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/O/g, "0");
+export const normalizeVin = (s: string) => {
+  const v = s.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/O/g, "0");
+  // Un VIN de 17 caracteres nunca lleva I ni Q (se leen como 1 y 0)
+  return v.length === 17 ? v.replace(/Q/g, "0").replace(/I/g, "1") : v;
+};
 
 export function checkDigitOk(vin: string): boolean {
   let sum = 0;

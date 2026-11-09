@@ -4,7 +4,7 @@ import type { VehicleCard } from "@/lib/map-data";
 import { STAGES } from "@/lib/format";
 import VehicleDrawer from "./VehicleDrawer";
 
-type Row = VehicleCard & { vessel: string | null; alert: "alta" | "media" | "baja" | null; alertCount: number };
+type Row = VehicleCard & { vessel: string | null; alert: "alta" | "media" | "baja" | null; alertCount: number; noInvoice: boolean };
 const DOT = { alta: "#fca5a5", media: "#fde68a", baja: "#7dd3fc" } as const;
 
 export default function VehicleList({ cards, role, initialQuery }: { cards: Row[]; role: string; initialQuery?: string }) {
@@ -22,6 +22,7 @@ export default function VehicleList({ cards, role, initialQuery }: { cards: Row[
       if (flt === "urgente" && c.alert !== "alta") return false;
       if (flt === "docs" && c.docs === "completo") return false;
       if (flt === "foto" && c.photo) return false;
+      if (flt === "factura" && !c.noInvoice) return false;
       if (flt === "origen" && c.shipmentId) return false;
       if (!t) return true;
       // Busca por cualquier parte del chasis (por ejemplo, los últimos 6) o por modelo, buque, BL, booking
@@ -43,7 +44,7 @@ export default function VehicleList({ cards, role, initialQuery }: { cards: Row[
       </div>
       <div className="flex flex-wrap gap-2 mt-3 text-xs">
         {([["", "Todos"], ["alerta", `Con alertas · ${cards.filter((c) => c.alert).length}`], ["urgente", `Urgentes · ${cards.filter((c) => c.alert === "alta").length}`],
-          ["docs", "Documentos incompletos"], ["foto", "Sin foto"], ["origen", "En origen, sin embarque"]] as [string, string][]).map(([k, l]) => (
+          ["factura", `Sin factura · ${cards.filter((c) => c.noInvoice).length}`], ["docs", "Documentos incompletos"], ["foto", "Sin foto"], ["origen", "En origen, sin embarque"]] as [string, string][]).map(([k, l]) => (
           <button key={k} onClick={() => setFlt(k)} className={`border px-2.5 py-1 ${flt === k ? "bg-white text-black border-white" : "border-white/25 text-white/70 hover:border-white"}`}>{l}</button>
         ))}
       </div>

@@ -5,7 +5,8 @@ import { createClient as createJs, type SupabaseClient } from "@supabase/supabas
 import { adminClient, claim, delState, download, getState, say, setState, tg, tgConfigured, webhookSecret } from "@/lib/telegram";
 import { analyzeDocument } from "@/lib/analyze";
 import { getAlerts } from "@/lib/alerts";
-import { normalizeVin } from "@/lib/vin";
+import { normalizeVin, vinWarnings } from "@/lib/vin";
+import { loadIndex, matchVin, label as vlabel, type Match, type VRow } from "@/lib/vin-match";
 
 export const maxDuration = 60;
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -211,8 +212,57 @@ async function processAnalysis(sb: SupabaseClient, chat: number, r: any, origina
   }
   if (!r.vehicles?.length) { await say(chat, `No encontré ningún chasis ni número de guía en el documento.${r.notes ? "\n" + r.notes : ""}\nSúbelo desde la Bandeja si necesitas completarlo a mano.`); return; }
   const id = randomUUID();
-  await setState(`tg_pend_${id}`, { chat, result: r, file_id: fileId, file_name: fileName, mime, t: Date.now() });
-  await say(chat, summary(r) + "\n\n¿Lo guardo?", { reply_markup: { inline_keyboard: [[{ text: "✅ Guardar", callback_data: `ok:${id}` }, { text: "✖ Descartar", callback_data: `no:${id}` }]] } });
+  await setState(`tg_pend_${id}`, { chat, result: r, file_id: fileId, file_name: fileName, mime, t: Date.now(), dec: {} });
+  await reviewNext(sb, chat, id);
+}
+
+// ───────── revisión de duplicados antes de guardar ─────────
+const SINGLE = ["crowley_tag", "gate_pass", "title"]; // documentos de un solo vehículo: no deben crear embarques nuevos ni inventar chasis
+const blurry = (r: any, v: any) => (v.warnings?.length ?? 0) > 0 || /borros|ilegible|blur|poco clar|no se lee|dudos/i.test(r.notes ?? "");
+
+// Pregunta por cada chasis dudoso, uno por uno. Cuando no queda ninguno, muestra el resumen con los botones de guardar.
+async function reviewNext(sb: SupabaseClient, chat: number, id: string) {
+  const p = await getState<any>(`tg_pend_${id}`);
+  if (!p) return;
+  const r = p.result, isInvoice = r.doc_type === "invoice";
+  const idx = await loadIndex(sb);
+  for (let i = 0; i < r.vehicles.length; i++) {
+    const v = r.vehicles[i];
+    if (!v.vin || p.dec[i]) continue;
+    const m = matchVin(v.vin, idx, { isInvoice, make: v.make });
+    if (m.exact) { p.dec[i] = { same: m.exact.id, exact: true }; continue; }
+    if (m.similar.length) {
+      p.ask = { i, cands: m.similar.map((x: Match) => x.row.id) };
+      await setState(`tg_pend_${id}`, p);
+      const lines = m.similar.map((x: Match) => `• ${vlabel(x.row)}\n  ${x.row.identifier}${x.row.invoice_confirmed_at ? " (confirmado por factura)" : ""} — ${x.why}`).join("\n");
+      await say(chat, `⚠️ El chasis ${v.vin} del documento se parece a uno que ya tienes:\n\n${lines}\n\n¿Es el mismo vehículo? Si la lectura está borrosa, lo más probable es que sí.`, {
+        reply_markup: { inline_keyboard: [
+          ...m.similar.map((x: Match, n: number) => [{ text: `Sí, es ${x.row.identifier.slice(-8)}`, callback_data: `sm:${id}:${n}` }]),
+          [{ text: "No, es otro vehículo", callback_data: `df:${id}` }],
+        ] },
+      });
+      return;
+    }
+    // Un documento de un solo vehículo con el chasis mal leído y sin parecido: no se crea nada a ciegas
+    if (SINGLE.includes(r.doc_type) && r.vehicles.length === 1 && blurry(r, v)) {
+      p.ask = { i, edit: true };
+      await setState(`tg_pend_${id}`, p); await setState(`tg_edit_${chat}`, { id });
+      await say(chat, `⚠️ No pude leer bien el chasis (${v.vin}${v.warnings?.length ? ": " + v.warnings[0] : ""}) y no se parece a ninguno de tus vehículos.\n\nEscríbeme el chasis correcto, o toca "Guardar así" si está bien tal como lo leí.`, {
+        reply_markup: { inline_keyboard: [[{ text: "Guardar así", callback_data: `kp:${id}` }, { text: "✖ Descartar", callback_data: `no:${id}` }]] },
+      });
+      return;
+    }
+    p.dec[i] = { fresh: true };
+  }
+  p.ask = null;
+  await setState(`tg_pend_${id}`, p);
+  const news = r.vehicles.filter((v: any, i: number) => v.vin && p.dec[i]?.fresh).length;
+  const extra = [
+    news && !isInvoice ? `\n⚠️ ${news} vehículo(s) se crearán SIN factura: quedarán marcados como "sin confirmar" hasta que subas la factura.` : "",
+    news && isInvoice ? `\n✔ La factura confirma ${news} vehículo(s) nuevo(s).` : "",
+    r.vehicles.some((v: any, i: number) => p.dec[i]?.same && !p.dec[i]?.exact) ? "\n↪ Usaré el chasis que ya tienes registrado." : "",
+  ].join("");
+  await say(chat, summary(r) + extra + "\n\n¿Lo guardo?", { reply_markup: { inline_keyboard: [[{ text: "✅ Guardar", callback_data: `ok:${id}` }, { text: "✖ Descartar", callback_data: `no:${id}` }]] } });
 }
 
 // ───────── guías de courier (DHL / FedEx) ─────────
@@ -255,8 +305,25 @@ async function commitPending(sb: SupabaseClient, chat: number, id: string) {
   const p = await getState<any>(`tg_pend_${id}`);
   if (!p) { await say(chat, "Ese documento ya se guardó o venció. Vuelve a enviarlo."); return; }
   if (p.type === "courier") return saveCourier(sb, chat, id, p);
-  const r = p.result;
-  const vehicles = r.vehicles.filter((v: any) => v.vin).map((v: any) => ({ ...v, vin: normalizeVin(v.vin) }));
+  if (p.ask && !p.ask.edit) { await reviewNext(sb, chat, id); return; } // todavía hay una duda sin resolver
+  const r = p.result, isInvoice = r.doc_type === "invoice";
+  const idx = await loadIndex(sb);
+  const byId = new Map(idx.map((x: VRow) => [x.id, x]));
+  const rename: { id: string; vin: string }[] = [];
+  let keepShipment = true;
+  const vehicles = r.vehicles.map((v: any, i: number) => {
+    const d = p.dec?.[i] ?? {};
+    let vin = normalizeVin(v.vin);
+    const ex = d.same ? byId.get(d.same) : null;
+    if (ex) {
+      // Un documento de un solo vehículo (etiqueta, gate pass, título) o una lectura dudosa no cambian el embarque que el vehículo ya tiene
+      if (ex.shipment_id && (SINGLE.includes(r.doc_type) || !d.exact)) keepShipment = false;
+      // La factura manda: si el chasis registrado difiere, se corrige con el de la factura después de guardar
+      if (!d.exact && isInvoice && skelDiff(vin, ex.identifier)) rename.push({ id: ex.id, vin });
+      vin = ex.identifier;
+    }
+    return { ...v, vin };
+  }).filter((v: any) => v.vin);
   let storage_path: string | undefined, hash: string | undefined;
   if (FOLDER[r.doc_type]) {
     const got = await download(p.file_id);
@@ -267,13 +334,21 @@ async function commitPending(sb: SupabaseClient, chat: number, id: string) {
     const up = await sb.storage.from("documents").upload(storage_path, got.buf, { contentType: p.mime, upsert: false });
     if (up.error && !/exists/i.test(up.error.message)) { await say(chat, `No pude guardar el archivo: ${up.error.message}`); return; }
   }
-  const { data, error } = await sb.rpc("intake_commit", { p_items: [{ doc_type: r.doc_type, origin: r.origin, shipment: r.shipment, courier: r.courier, vehicles, storage_path, sha256: hash }] });
+  const { data, error } = await sb.rpc("intake_commit", { p_items: [{ doc_type: r.doc_type, origin: r.origin, shipment: keepShipment ? r.shipment : {}, courier: r.courier, vehicles, storage_path, sha256: hash }] });
   if (error) { await say(chat, /sha256/.test(error.message) ? "Ese documento ya estaba cargado." : `No se pudo guardar: ${error.message}`); await delState(`tg_pend_${id}`); return; }
-  await delState(`tg_pend_${id}`);
-  const first = (await findVehicles(sb, vehicles[0].vin))[0];
+  await delState(`tg_pend_${id}`); await delState(`tg_edit_${chat}`);
+
+  // La factura corrige el chasis registrado (si estaba mal leído) y confirma el vehículo
+  for (const x of rename) await sb.from("vehicles").update({ identifier: x.vin, id_kind: x.vin.length === 17 ? "vin" : "chassis" }).eq("id", x.id);
+  let noInvoice = 0;
+  if (isInvoice) await sb.from("vehicles").update({ invoice_confirmed_at: new Date().toISOString() }).in("identifier", vehicles.map((v: any) => rename.find((x) => byId.get(x.id)?.identifier === v.vin)?.vin ?? v.vin)).is("invoice_confirmed_at", null);
+  else noInvoice = r.vehicles.filter((v: any, i: number) => v.vin && p.dec?.[i]?.fresh).length;
+
+  const first = (await findVehicles(sb, rename[0]?.vin ?? vehicles[0].vin))[0];
   if (first) await setActive(chat, first);
-  await say(chat, `✅ Guardado: ${data.vehicles_new} vehículo(s) nuevo(s), ${data.vehicles_updated} actualizado(s), ${data.shipments_new} embarque(s), ${data.documents} documento(s).${first ? `\n\nVehículo activo: ${short(first)}` : ""}`);
+  await say(chat, `✅ Guardado: ${data.vehicles_new} vehículo(s) nuevo(s), ${data.vehicles_updated} actualizado(s), ${data.shipments_new} embarque(s), ${data.documents} documento(s).${rename.length ? `\n↪ Chasis corregido con el de la factura: ${rename.map((x) => x.vin).join(", ")}` : ""}${noInvoice ? `\n⚠️ ${noInvoice} vehículo(s) quedaron SIN confirmar: falta subir la factura.` : ""}${first ? `\n\nVehículo activo: ${short(first)}` : ""}`);
 }
+const skelDiff = (a: string, b: string) => a.replace(/[OQ]/g, "0").replace(/I/g, "1") !== b.replace(/[OQ]/g, "0").replace(/I/g, "1");
 
 // ───────── consultas ─────────
 async function estado(sb: SupabaseClient, chat: number, arg: string) {
@@ -336,6 +411,13 @@ async function handle(upd: any) {
     if (kind === "v") {
       const { data } = await sb.from("vehicles").select("id, identifier, make, model, model_year, color").eq("id", arg).maybeSingle();
       if (data) { await setActive(chat, data as Veh); await say(chat, `✅ Vehículo elegido:\n${label(data as Veh)}\n${(data as Veh).identifier}\n\nMándame las fotos o videos.`); }
+    } else if (kind === "sm" || kind === "df" || kind === "kp") {
+      const [pid, n] = String(arg).split(":");
+      const p = await getState<any>(`tg_pend_${pid}`);
+      if (!p) { await say(chat, "Ese documento ya se guardó o venció. Vuelve a enviarlo."); return; }
+      if (kind === "kp") { p.dec[p.ask.i] = { fresh: true }; p.ask = null; await setState(`tg_pend_${pid}`, p); await delState(`tg_edit_${chat}`); }
+      else if (p.ask && !p.ask.edit) { p.dec[p.ask.i] = kind === "sm" ? { same: p.ask.cands[Number(n)] } : { fresh: true }; p.ask = null; await setState(`tg_pend_${pid}`, p); }
+      await reviewNext(sb, chat, pid);
     } else if (kind === "ok") await commitPending(sb, chat, arg);
     else if (kind === "no") { await delState(`tg_pend_${arg}`); await say(chat, "Descartado, no se guardó nada."); }
     return;
@@ -355,6 +437,17 @@ async function handle(upd: any) {
   if (msg.photo || msg.video || msg.document?.mime_type?.startsWith("video/")) return void (await handleMedia(sb, chat, msg));
   if (msg.document) return void (await handleDocument(sb, chat, msg));
   if (text) {
+    // Si el bot pidió corregir un chasis, el texto siguiente es el chasis correcto
+    const edit = await getState<{ id: string }>(`tg_edit_${chat}`);
+    const typed = normalizeVin(text);
+    if (edit && /^[A-Z0-9]{11,17}$/.test(typed)) {
+      const p = await getState<any>(`tg_pend_${edit.id}`);
+      if (p?.ask?.edit) {
+        p.result.vehicles[p.ask.i].vin = typed; p.result.vehicles[p.ask.i].warnings = vinWarnings(typed);
+        p.ask = null; p.dec = {}; await setState(`tg_pend_${edit.id}`, p); await delState(`tg_edit_${chat}`);
+        return void (await reviewNext(sb, chat, edit.id));
+      }
+    }
     // Un número de guía escrito a mano ("DHL 8296478245", "guía 8296478245" o solo el número largo)
     const digits = (text.match(/\d[\d\s-]{8,24}\d/)?.[0] ?? "").replace(/\D/g, "");
     const word = /\b(dhl|fedex|fed\s?ex|fdx|gu[ií]a|track(ing)?|rastreo)\b/i.test(text);

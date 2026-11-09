@@ -1,10 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import { buildChecklist, type CourierInfo } from "@/lib/checklist";
+import { findDuplicatePairs, label as vlabel } from "@/lib/vin-match";
 
 export type Priority = "alta" | "media" | "baja";
 export type AlertItem = {
   id: string; priority: Priority; rule: string; title: string; detail: string; action: string;
   vehicleId?: string; ref?: string; // chasis o buque, para mostrar y buscar
+  dup?: { a: { id: string; identifier: string; label: string }; b: { id: string; identifier: string; label: string } };
 };
 export type AlertsData = { items: AlertItem[]; role: string; lastRun: string | null };
 
@@ -18,7 +20,7 @@ const fmt = (iso: string) => new Date(iso).toLocaleDateString("es-DO", { day: "n
 export async function getAlerts(client?: any): Promise<AlertsData> {
   const sb = client ?? (await createClient());
   const { data: { user } } = await sb.auth.getUser();
-  const [prof, veh, ships, events, etas, media, run, cour, docsQ, tev] = await Promise.all([
+  const [prof, veh, ships, events, etas, media, run, cour, docsQ, tev, inv, ign] = await Promise.all([
     sb.from("profiles").select("role").eq("id", user!.id).single(),
     sb.from("vehicles").select("id, identifier, make, model, model_year, is_provisional, docs, stage, shipment_id, created_at, origin").is("archived_at", null),
     sb.from("shipments").select("id, booking_no, bl_no, bl_status, voyage_id, voyage:voyages(id, vessel:vessels(name))"),
@@ -29,7 +31,11 @@ export async function getAlerts(client?: any): Promise<AlertsData> {
     sb.from("courier_vehicles").select("vehicle_id, courier:courier_shipments(kind, carrier, tracking_no, received_confirmed_at)"),
     sb.from("documents").select("vehicle_id, shipment_id, doc_type").eq("is_current", true).is("archived_at", null),
     sb.from("tracking_events").select("voyage_id, event_type, occurred_at, observed_at"),
+    sb.from("vehicles").select("id, invoice_confirmed_at").is("archived_at", null), // falla si la columna aún no existe: entonces no hay alertas de factura
+    sb.from("settings").select("value").eq("key", "dup_ignored").maybeSingle(),
   ]);
+  const invOf = inv.error ? null : new Map((inv.data ?? []).map((x: any) => [x.id, x.invoice_confirmed_at as string | null]));
+  const ignored = new Set<string>(((ign.data?.value as string[]) ?? []));
   // Fecha de salida: el evento "zarpó" si existe; si no, el evento más antiguo registrado.
   const depOf = new Map<string, string>();
   for (const e of (tev.data ?? []) as any[]) {
@@ -128,6 +134,12 @@ export async function getAlerts(client?: any): Promise<AlertsData> {
         }
       }
     }
+    // 4c. La factura es la fuente madre: sin ella el vehículo no está confirmado
+    if (invOf && !c.is_provisional && !invOf.get(c.id)) {
+      items.push({ ...base, id: `factura-${c.id}`, priority: new Date(c.created_at) > new Date("2026-11-09T12:00:00Z") ? "media" : "baja", rule: "Sin factura",
+        title: `${name(c)} no está confirmado: falta su factura`, detail: "Se creó desde otro documento. La factura es la que confirma que el chasis y los datos son correctos.",
+        action: "Subir la factura de este vehículo en la Bandeja o por el bot." });
+    }
     // 5. Chasis provisional
     if (c.is_provisional) {
       items.push({ ...base, id: `provisional-${c.id}`, priority: "baja", rule: "Chasis por asignar",
@@ -140,6 +152,17 @@ export async function getAlerts(client?: any): Promise<AlertsData> {
         title: `${name(c)} no tiene foto principal`, detail: "Ya está en camino y no se ve en el mapa con foto.",
         action: "Abrir el vehículo y subir sus fotos." });
     }
+  }
+
+  // 6b. Posibles duplicados: mismos 6 últimos caracteres y marca
+  for (const [a, b] of findDuplicatePairs((veh.data ?? []) as any)) {
+    const key = [a.id, b.id].sort().join("|");
+    if (ignored.has(key)) continue;
+    const mk = (x: any) => ({ id: x.id, identifier: x.identifier, label: vlabel(x) });
+    items.push({ id: `dup-${key}`, priority: "alta", rule: "Posible duplicado", ref: a.identifier, vehicleId: a.id, dup: { a: mk(a), b: mk(b) },
+      title: `¿Son el mismo vehículo? ${a.identifier} y ${b.identifier}`,
+      detail: `${vlabel(a)} · terminan igual (${a.identifier.slice(-6)}). Una lectura borrosa suele producir esto.`,
+      action: "Elige cuál es el chasis correcto para fusionarlos, o marca que son vehículos distintos." });
   }
 
   // 7. La ETA de un buque cambió 3 días o más
