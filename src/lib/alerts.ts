@@ -14,6 +14,7 @@ const DAY = 864e5;
 const days = (iso: string) => (new Date(iso).getTime() - Date.now()) / DAY;
 const fmt = (iso: string) => new Date(iso).toLocaleDateString("es-DO", { day: "numeric", month: "short", timeZone: "UTC" });
 
+import { PLAN_ALERT_PCT, SUPABASE_STORAGE_FREE_BYTES } from "@/lib/limits";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Las alertas se calculan en el momento con lo que ya está guardado: no hay tabla que mantener
 // ni tarea programada. Cada regla dice qué pasa y qué hacer.
@@ -191,5 +192,16 @@ export async function getAlerts(client?: any): Promise<AlertsData> {
 
   const order: Record<Priority, number> = { alta: 0, media: 1, baja: 2 };
   items.sort((a, b) => order[a.priority] - order[b.priority] || a.title.localeCompare(b.title));
+  // Consumo del plan gratuito: al 80 % se empieza a evaluar el plan de pago
+  try {
+    const { data: sizes } = await sb.from("vehicle_media").select("size_bytes").limit(20000);
+    const used = (sizes ?? []).reduce((n: number, r: any) => n + (r.size_bytes ?? 0), 0);
+    const pct = used / SUPABASE_STORAGE_FREE_BYTES;
+    if (pct >= PLAN_ALERT_PCT) {
+      items.push({ id: "plan-storage", priority: "media", rule: "Plan gratuito", title: `El almacenamiento de fotos y videos está al ${Math.round(pct * 100)}% del plan gratuito de Supabase`,
+        detail: `Fotos y videos: ${(used / 1024 ** 2).toFixed(0)} MB de ${(SUPABASE_STORAGE_FREE_BYTES / 1024 ** 2).toFixed(0)} MB (sin contar documentos).`,
+        action: "Empezar a evaluar el plan de pago de Supabase y revisar también el uso de la base de datos y de Vercel en sus paneles." });
+    }
+  } catch {}
   return { items, role: prof.data?.role ?? "consulta", lastRun };
 }
