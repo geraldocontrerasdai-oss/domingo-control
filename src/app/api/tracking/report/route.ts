@@ -100,8 +100,18 @@ export async function POST(req: Request) {
   // Si todas las búsquedas fallaron (p. ej. la naviera pidió verificación), no cuenta como hecha:
   // el agente vuelve a intentar en el siguiente turno de 3 horas.
   const allFailed = checked > 0 && failed >= checked;
-  if (!allFailed) {
-    await sb.from("settings").upsert({ key: "tracking_last_run", value: { at: new Date().toISOString(), checked, updated: applied, failed } });
+  const errors: string[] = Array.isArray(body?.run?.errors) ? body.run.errors.slice(0, 8).map((e: any) => String(e).slice(0, 160)) : [];
+  const nowIso = new Date().toISOString();
+  // Reloj por buque: cuenta como leído todo buque con actualización, aunque no haya cambiado, o listado en read_ok.
+  const okIds = new Set<string>([...updates.map((u) => u?.voyage_id), ...(Array.isArray(body?.run?.read_ok) ? body.run.read_ok : [])].filter((id) => known.has(id)));
+  if (okIds.size) {
+    const { data: ck } = await sb.from("settings").select("value").eq("key", "tracking_voyage_checks").maybeSingle();
+    const checks: Record<string, string> = { ...((ck?.value as any) ?? {}) };
+    for (const id of okIds) checks[id] = nowIso;
+    await sb.from("settings").upsert({ key: "tracking_voyage_checks", value: checks });
   }
-  return NextResponse.json({ applied, vehicles_updated: vehiclesUpdated, skipped, notes, counted: !allFailed });
+  if (!allFailed) {
+    await sb.from("settings").upsert({ key: "tracking_last_run", value: { at: nowIso, checked, updated: applied, failed, errors } });
+  }
+  return NextResponse.json({ applied, vehicles_updated: vehiclesUpdated, skipped, notes, counted: !allFailed, voyages_ok: okIds.size });
 }

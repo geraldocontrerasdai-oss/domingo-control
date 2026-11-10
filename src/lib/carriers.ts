@@ -34,8 +34,18 @@ export function detectCarrier(name?: string | null, ...numbers: (string | null |
   return { carrier: null, known: false };
 }
 
-/** Enlace a la página pública de seguimiento. Maersk acepta el número en la dirección. */
+/** Número tal como lo acepta el buscador de la naviera. ONE pide los últimos 12 caracteres, SIN el prefijo "ONEY":
+ *  con el prefijo responde "No Data Found". */
+export function searchNumber(carrier: Carrier | null, number: string): string {
+  const n = number.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return carrier?.code === "ONE" ? n.replace(/^ONEY/, "") : n;
+}
+
+/** Enlace a la página pública de seguimiento. Maersk y ONE aceptan el número en la dirección
+ *  (ONE: ?trakNoParam=), lo que evita escribir en el buscador y que los avisos emergentes estorben. */
 export function trackUrl(carrier: Carrier | null, number?: string | null): string | null {
   if (!carrier) return null;
-  return carrier.code === "MAEU" && number ? carrier.url + encodeURIComponent(number) : carrier.url;
+  if (carrier.code === "MAEU" && number) return carrier.url + encodeURIComponent(number);
+  if (carrier.code === "ONE" && number) return `${carrier.url}?trakNoParam=${encodeURIComponent(searchNumber(carrier, number))}`;
+  return carrier.url;
 }

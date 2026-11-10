@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { detectCarrier, trackUrl } from "@/lib/carriers";
+import { detectCarrier, searchNumber, trackUrl } from "@/lib/carriers";
 import { FINAL_EVENTS, RUN_EVERY_HOURS, TRACK_EVENTS } from "@/lib/tracking";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Lo consulta el agente de seguimiento. Dice si toca buscar (pasaron 24 h desde la última
-// búsqueda exitosa) y qué buques revisar. Si no toca, devuelve la lista vacía: así el
+// Lo consulta el agente de seguimiento. Dice qué buques toca revisar (los que llevan 24 h o más sin una
+// lectura buena; los que fallaron se reintentan en la siguiente vuelta de 3 h). Si no toca, devuelve la lista vacía: así el
 // agente termina enseguida y no gasta nada.
 export async function GET(req: Request) {
   const sb = await createClient();
@@ -14,12 +14,16 @@ export async function GET(req: Request) {
   const { data: prof } = await sb.from("profiles").select("role").eq("id", user.id).single();
   if (prof?.role !== "admin" && prof?.role !== "operaciones") return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
 
+  // Cada buque tiene su propio reloj: se vuelve a buscar cuando pasaron 24 h desde SU última lectura buena.
+  // Así, si una naviera falla, solo esa se reintenta en la próxima vuelta de 3 h y las demás no se repiten.
   const force = new URL(req.url).searchParams.get("force") === "1";
-  const { data: st } = await sb.from("settings").select("value").eq("key", "tracking_last_run").maybeSingle();
+  const [{ data: st }, { data: ck }] = await Promise.all([
+    sb.from("settings").select("value").eq("key", "tracking_last_run").maybeSingle(),
+    sb.from("settings").select("value").eq("key", "tracking_voyage_checks").maybeSingle(),
+  ]);
   const lastAt: string | null = (st?.value as any)?.at ?? null;
-  const hours = lastAt ? (Date.now() - new Date(lastAt).getTime()) / 36e5 : Infinity;
-  const due = force || hours >= RUN_EVERY_HOURS;
-  if (!due) return NextResponse.json({ due: false, last_run: lastAt, hours_since: Math.round(hours * 10) / 10, items: [] });
+  const checks: Record<string, string> = (ck?.value as any) ?? {};
+  const staleHours = (voyageId: string) => { const t = checks[voyageId]; return t ? (Date.now() - new Date(t).getTime()) / 36e5 : Infinity; };
 
   const [ships, events, cars] = await Promise.all([
     sb.from("shipments").select("id, booking_no, bl_no, mode, voyage:voyages(id, carrier, vessel:vessels(name))"),
@@ -42,15 +46,18 @@ export async function GET(req: Request) {
     const last: any = lastOf.get(voyageId);
     if (last && FINAL_EVENTS.includes(last.event_type)) return []; // ya llegó: no hace falta buscar más
     if (!g.numbers.length) return [];
+    if (!force && staleHours(voyageId) < RUN_EVERY_HOURS) return []; // leído hace menos de 24 h
     const vessel: any = Array.isArray(g.v.vessel) ? g.v.vessel[0] : g.v.vessel;
     const guess = detectCarrier(g.v.carrier, ...g.numbers);
+    const numbers = g.numbers.map((n: string) => searchNumber(guess.carrier, n));
     return [{
       voyage_id: voyageId, vessel: vessel?.name ?? null, carrier: guess.carrier?.name ?? g.v.carrier,
-      numbers: g.numbers, vehicles: g.mode === "roro" ? g.vehicles : undefined, mode: g.mode, url: trackUrl(guess.carrier, g.numbers[0]),
+      numbers, hours_since_ok: Number.isFinite(staleHours(voyageId)) ? Math.round(staleHours(voyageId)) : null, vehicles: g.mode === "roro" ? g.vehicles : undefined, mode: g.mode, url: trackUrl(guess.carrier, numbers[0]), url_has_number: guess.carrier?.code === "ONE" || guess.carrier?.code === "MAEU",
       current_event: last?.event_type ?? null, current_progress: last?.route_progress ?? null,
     }];
   });
 
+  if (!items.length) return NextResponse.json({ due: false, last_run: lastAt, items: [] });
   return NextResponse.json({
     due: true, last_run: lastAt, items,
     allowed_events: TRACK_EVENTS.map((e) => ({ code: e.code, meaning: e.label, only_container: !e.roro })),

@@ -11,6 +11,7 @@ export type AlertItem = {
 export type AlertsData = { items: AlertItem[]; role: string; lastRun: string | null };
 
 const DAY = 864e5;
+const FINAL_EVENTS_SET = new Set(["arrived", "discharged"]);
 const days = (iso: string) => (new Date(iso).getTime() - Date.now()) / DAY;
 const fmt = (iso: string) => new Date(iso).toLocaleDateString("es-DO", { day: "numeric", month: "short", timeZone: "UTC" });
 
@@ -67,6 +68,10 @@ export async function getAlerts(client?: any): Promise<AlertsData> {
   const name = (v: any) => [v.model_year, v.make, v.model].filter(Boolean).join(" ") || "Vehículo";
   const vesselOf = (s: any) => { const v: any = Array.isArray(s?.voyage) ? s.voyage[0] : s?.voyage; const ve: any = Array.isArray(v?.vessel) ? v.vessel[0] : v?.vessel; return ve?.name ?? "buque"; };
   const items: AlertItem[] = [];
+  // Reloj por buque (última lectura buena del seguimiento): a las 36 h sin actualizar avisa, a las 48 h es importante
+  const { data: ckRow } = await sb.from("settings").select("value").eq("key", "tracking_voyage_checks").maybeSingle();
+  const voyChecks: Record<string, string> = (ckRow?.value as any) ?? {};
+  const staleSeen = new Set<string>();
 
   for (const c of veh.data ?? []) {
     const s: any = c.shipment_id ? shipOf.get(c.shipment_id) : null;
@@ -77,6 +82,17 @@ export async function getAlerts(client?: any): Promise<AlertsData> {
     const closed = arrived && days(ev.occurred_at ?? ev.observed_at) < -21; // descargado hace más de 3 semanas: ya es historial, sin alertas
     if (closed) continue;
     if (c.stage === "arribado" && !s) continue; // ya recibido en Haina sin pasar por un embarque registrado: sin alertas
+    if (s?.voyage_id && !arrived && !staleSeen.has(s.voyage_id) && FINAL_EVENTS_SET.has(ev?.event_type) === false) {
+      staleSeen.add(s.voyage_id);
+      const lastOk = voyChecks[s.voyage_id] ?? ev?.observed_at ?? null;
+      const hrs = lastOk ? -days(lastOk) * 24 : null;
+      if (hrs !== null && hrs >= 36) {
+        items.push({ ...base, id: `buque-sin-actualizar-${s.voyage_id}`, priority: hrs >= 48 ? "alta" : "media", rule: "Buque sin actualizar", ref: vesselOf(s),
+          title: `${vesselOf(s)} lleva ${Math.round(hrs)} horas sin actualizarse`,
+          detail: "El seguimiento no logró leer la página de la naviera. Si pasa de 48 horas, hay que revisarlo a mano.",
+          action: "Abrir el seguimiento del buque desde el mapa (botón de la naviera) y actualizar el estado a mano; confirmar que la app de Claude esté abierta en la laptop." });
+      }
+    }
     const blOk = s?.bl_status === "final" || !!s?.booking_no; // con booking no se necesita el BL
 
     // 1. Se acerca a destino sin BL definitivo
