@@ -139,7 +139,7 @@ export async function getMapData(): Promise<MapData> {
 
   previous.sort((a, b) => (b.doneAt ?? "").localeCompare(a.doneAt ?? ""));
   const onMap = new Set([...views.flatMap((s) => s.vehicles), ...previous.flatMap((s) => s.vehicles)].map((c) => c.id));
-  const orphans = (vehicles.data ?? []).filter((c: any) => !onMap.has(c.id));
+  const orphans = (vehicles.data ?? []).filter((c: any) => !onMap.has(c.id) && c.stage !== "arribado"); // los ya recibidos no se muestran "en origen"
   const byPort = new Map<string, OriginView>();
   let unassigned = 0;
   for (const c of orphans as any[]) {

@@ -76,6 +76,7 @@ export async function getAlerts(client?: any): Promise<AlertsData> {
     const arrived = ev && ["arrived", "discharged"].includes(ev.event_type);
     const closed = arrived && days(ev.occurred_at ?? ev.observed_at) < -21; // descargado hace más de 3 semanas: ya es historial, sin alertas
     if (closed) continue;
+    if (c.stage === "arribado" && !s) continue; // ya recibido en Haina sin pasar por un embarque registrado: sin alertas
     const blOk = s?.bl_status === "final" || !!s?.booking_no; // con booking no se necesita el BL
 
     // 1. Se acerca a destino sin BL definitivo
