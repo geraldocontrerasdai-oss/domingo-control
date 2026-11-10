@@ -17,7 +17,7 @@ export type ShipView = {
   pos: { x: number; y: number }; tag: { x: number; y: number }; vehicles: VehicleCard[];
 };
 
-// Viaje ya descargado hace más de 3 semanas: sale del mapa y pasa a "Contenedores anteriores"
+// Viaje ya descargado hace más de 25 días: sale del mapa y pasa a "Contenedores anteriores"
 export type PrevShip = {
   id: string; name: string; carrier: string; mode: "roro" | "container"; route: string;
   event: string; doneAt: string | null; trackNumber: string | null; vehicles: VehicleCard[];
@@ -26,7 +26,7 @@ export type PrevShip = {
 // Vehículos comprados que aún no tienen embarque: se muestran en su puerto de origen
 export type OriginView = { id: string; name: string; pos: { x: number; y: number }; vehicles: VehicleCard[] };
 
-export const KEEP_DAYS = 21;
+export const KEEP_DAYS = 25;
 
 export type MapData = { ships: ShipView[]; previous: PrevShip[]; origins: OriginView[]; unassigned: number; role: string; lastRun: string | null; ports: typeof PORT_LABELS };
 

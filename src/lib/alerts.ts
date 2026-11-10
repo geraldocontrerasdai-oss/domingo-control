@@ -79,7 +79,7 @@ export async function getAlerts(client?: any): Promise<AlertsData> {
     const ev: any = s?.voyage_id ? evOf.get(s.voyage_id) : null;
     const eta: string | null = s?.voyage_id ? etaList.get(s.voyage_id)?.[0]?.eta ?? null : null;
     const arrived = ev && ["arrived", "discharged"].includes(ev.event_type);
-    const closed = arrived && days(ev.occurred_at ?? ev.observed_at) < -21; // descargado hace más de 3 semanas: ya es historial, sin alertas
+    const closed = arrived && days(ev.occurred_at ?? ev.observed_at) < -25; // descargado hace más de 25 días: ya es historial, sin alertas
     if (closed) continue;
     if (c.stage === "arribado" && !s) continue; // ya recibido en Haina sin pasar por un embarque registrado: sin alertas
     if (s?.voyage_id && !arrived && !staleSeen.has(s.voyage_id) && FINAL_EVENTS_SET.has(ev?.event_type) === false) {

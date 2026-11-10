@@ -6,13 +6,13 @@ import VehicleDrawer from "./VehicleDrawer";
 
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("es-DO", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "—");
 
-// Viajes descargados hace más de 3 semanas. Siguen consultables, con sus fotos y documentos.
+// Viajes descargados hace más de 25 días. Siguen consultables, con sus fotos y documentos.
 export default function PreviousList({ data, role }: { data: PrevShip[]; role: string }) {
   const [car, setCar] = useState<VehicleCard | null>(null);
   const canEdit = role === "admin" || role === "operaciones";
   return (
     <div className="max-w-6xl mx-auto p-6 text-white">
-      <p className="text-xs text-white/40 mb-4">Viajes descargados hace más de 3 semanas. Salen del mapa pero siguen aquí con todo su expediente.</p>
+      <p className="text-xs text-white/40 mb-4">Viajes descargados hace más de 25 días. Salen del mapa pero siguen aquí con todo su expediente.</p>
       {data.length === 0 && <div className="border border-white/10 p-8 text-center text-white/40 text-sm">Todavía no hay viajes anteriores.</div>}
       {data.map((s) => (
         <section key={s.id} className="border border-white/10 mb-4">

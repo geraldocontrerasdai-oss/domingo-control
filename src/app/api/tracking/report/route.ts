@@ -6,7 +6,7 @@ import { TRACK_EVENTS } from "@/lib/tracking";
 // Recibe lo que el agente leyó en las páginas de las navieras. Todo se valida aquí:
 // solo eventos de la lista, solo viajes que existen y valores dentro de rango.
 // - vessel: si la naviera dice que el mismo booking/BL ahora va en OTRO buque, se actualiza el nombre.
-// - occurred_at (AAAA-MM-DD): fecha real del evento según la naviera (sirve para las 3 semanas de descargados).
+// - occurred_at (AAAA-MM-DD): fecha real del evento según la naviera (sirve para los 25 días de descargados).
 // - vehicles: estado por chasis (RORO), ajusta la etapa de cada vehículo.
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
