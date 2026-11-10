@@ -26,6 +26,17 @@ const clampView = (v: View): View => {
   return { w, h, x: Math.min(W - w, Math.max(0, v.x)), y: Math.min(H - h, Math.max(0, v.y)) };
 };
 
+// Agrupa por proveedor (el grupo más grande primero, "sin proveedor" al final) y dentro de cada grupo
+// pone arriba lo más completo: chasis real + foto, luego chasis real, luego con foto, y al final los provisionales sin foto.
+function groupBySupplier(cars: VehicleCard[]): [string, VehicleCard[]][] {
+  const score = (c: VehicleCard) => (c.provisional ? 0 : 2) + (c.photo ? 1 : 0);
+  const m = new Map<string, VehicleCard[]>();
+  for (const c of cars) { const k = c.supplier ?? ""; m.set(k, [...(m.get(k) ?? []), c]); }
+  return [...m.entries()]
+    .map(([k, v]) => [k, v.sort((a, b) => score(b) - score(a) || a.identifier.localeCompare(b.identifier))] as [string, VehicleCard[]])
+    .sort((a, b) => (a[0] === "" ? 1 : b[0] === "" ? -1 : b[1].length - a[1].length || a[0].localeCompare(b[0])));
+}
+
 export default function MapView({ data }: { data: MapData }) {
   const [sel, setSel] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
@@ -328,7 +339,13 @@ export default function MapView({ data }: { data: MapData }) {
               <button onClick={() => setSelO(null)} className="text-white/50 hover:text-white text-sm">✕</button>
             </div>
             <div className="p-4 space-y-3">
-              {org.vehicles.map((c) => (
+              {groupBySupplier(org.vehicles).map(([sup, list]) => (
+                <div key={sup || "__none"} className="space-y-3">
+                  <div className="flex items-baseline justify-between border-b border-white/15 pb-1 pt-2">
+                    <span className="text-[11px] tracking-[0.2em] uppercase text-white/70">{sup || "Sin proveedor"}</span>
+                    <span className="text-[11px] text-white/45">{list.length} {list.length === 1 ? "vehículo" : "vehículos"}</span>
+                  </div>
+              {list.map((c) => (
                 <button key={c.id} onClick={() => setCar(c)} className="w-full text-left border border-white/15 hover:border-white overflow-hidden flex">
                   <div className="w-24 shrink-0 bg-white/5 grid place-items-center text-[10px] text-white/35">
                     {c.photo /* eslint-disable-next-line @next/next/no-img-element */ ? <img src={c.photo} alt={c.title} className="w-full h-full object-cover" /> : "sin foto"}
@@ -339,6 +356,8 @@ export default function MapView({ data }: { data: MapData }) {
                     {c.provisional && <div className="text-[11px] text-amber-200/80 mt-1">Chasis por asignar</div>}
                   </div>
                 </button>
+              ))}
+                </div>
               ))}
             </div>
           </aside>

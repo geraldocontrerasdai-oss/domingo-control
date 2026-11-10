@@ -7,6 +7,7 @@ export type VehicleCard = {
   stage: string; docs: string; notes: string | null; provisional: boolean;
   shipmentId: string | null; booking: string; container: string | null; bl: string | null; blStatus: string; consignee: string;
   photo: string | null; // foto principal (URL firmada temporal)
+  supplier?: string | null;
 };
 
 export type ShipView = {
@@ -46,7 +47,7 @@ export async function getMapData(): Promise<MapData> {
   const [prof, ships, vehicles, media, events, etas, run] = await Promise.all([
     sb.from("profiles").select("role").eq("id", user!.id).single(),
     sb.from("shipments").select("id, mode, booking_no, bl_no, bl_status, consignee, port_loading, port_discharge, voyage:voyages(id, voyage_no, carrier, vessel:vessels(name)), containers(container_no)"),
-    sb.from("vehicles").select("id, identifier, make, model, model_year, color, origin_place, stage, docs, notes, is_provisional, shipment_id, container_id").is("archived_at", null),
+    sb.from("vehicles").select("id, identifier, make, model, model_year, color, origin_place, stage, docs, notes, is_provisional, shipment_id, container_id, supplier:suppliers(name)").is("archived_at", null),
     sb.from("vehicle_media").select("vehicle_id, storage_path").eq("is_primary", true).is("archived_at", null),
     sb.from("v_voyage_last_event").select("*"),
     sb.from("v_current_eta").select("voyage_id, eta, source"),
@@ -151,6 +152,7 @@ export async function getMapData(): Promise<MapData> {
       color: c.color, origin: c.origin_place, stage: c.stage, docs: c.docs, notes: c.notes,
       provisional: c.is_provisional, shipmentId: null, booking: "", container: null,
       bl: null, blStatus: "none", consignee: "", photo: (photoOf.get(c.id) as string) ?? null,
+      supplier: (Array.isArray(c.supplier) ? c.supplier[0]?.name : c.supplier?.name) ?? null,
     };
     const g = byPort.get(port.name) ?? { id: port.name, name: port.name, pos: port.pos, vehicles: [] };
     g.vehicles.push(card);
