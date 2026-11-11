@@ -22,7 +22,7 @@ import { PLAN_ALERT_PCT, SUPABASE_STORAGE_FREE_BYTES } from "@/lib/limits";
 export async function getAlerts(client?: any): Promise<AlertsData> {
   const sb = client ?? (await createClient());
   const { data: { user } } = await sb.auth.getUser();
-  const [prof, veh, ships, events, etas, media, run, cour, docsQ, tev, inv, ign] = await Promise.all([
+  const [prof, veh, ships, events, etas, media, run, cour, docsQ, tev, inv, ign, pick] = await Promise.all([
     sb.from("profiles").select("role").eq("id", user!.id).single(),
     sb.from("vehicles").select("id, identifier, make, model, model_year, is_provisional, docs, stage, shipment_id, created_at, origin").is("archived_at", null),
     sb.from("shipments").select("id, booking_no, bl_no, bl_status, voyage_id, voyage:voyages(id, vessel:vessels(name))"),
@@ -35,7 +35,9 @@ export async function getAlerts(client?: any): Promise<AlertsData> {
     sb.from("tracking_events").select("voyage_id, event_type, occurred_at, observed_at"),
     sb.from("vehicles").select("id, invoice_confirmed_at").is("archived_at", null), // falla si la columna aún no existe: entonces no hay alertas de factura
     sb.from("settings").select("value").eq("key", "dup_ignored").maybeSingle(),
+    sb.from("vehicles").select("id, picked_up_at").is("archived_at", null), // falla si la columna aún no existe: entonces no hay alerta de retiro
   ]);
+  const pickMap = new Map<string, string | null>(pick.error ? [] : (pick.data ?? []).map((r: any) => [r.id, r.picked_up_at]));
   const invOf = inv.error ? null : new Map((inv.data ?? []).map((x: any) => [x.id, x.invoice_confirmed_at as string | null]));
   const ignored = new Set<string>(((ign.data?.value as string[]) ?? []));
   // Fecha de salida: el evento "zarpó" si existe; si no, el evento más antiguo registrado.
@@ -80,6 +82,14 @@ export async function getAlerts(client?: any): Promise<AlertsData> {
     const eta: string | null = s?.voyage_id ? etaList.get(s.voyage_id)?.[0]?.eta ?? null : null;
     const arrived = ev && ["arrived", "discharged"].includes(ev.event_type);
     const closed = arrived && days(ev.occurred_at ?? ev.observed_at) < -25; // descargado hace más de 25 días: ya es historial, sin alertas
+    // Descargado y todavía sin retirar del puerto (almacenaje): se avisa aunque el buque ya sea historial
+    if (arrived && pickMap.has(c.id) && pickMap.get(c.id) === null) {
+      const dd = Math.floor(-days(ev.occurred_at ?? ev.observed_at));
+      if (dd >= 5) items.push({ ...base, id: `sin-retirar-${c.id}`, priority: dd >= 10 ? "alta" : "media", rule: "Sin retirar del puerto",
+        title: `${name(c)} lleva ${dd} días descargado sin retirarse del puerto`,
+        detail: `${vesselOf(s)} · descargado hace ${dd} días. Puede generar costos de almacenaje.`,
+        action: "Retirarlo del muelle y marcar \"Retirado del puerto\" en su expediente." });
+    }
     if (closed) continue;
     if (c.stage === "arribado" && !s) continue; // ya recibido en Haina sin pasar por un embarque registrado: sin alertas
     if (s?.voyage_id && !arrived && !staleSeen.has(s.voyage_id) && FINAL_EVENTS_SET.has(ev?.event_type) === false) {

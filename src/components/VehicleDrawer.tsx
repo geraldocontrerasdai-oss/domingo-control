@@ -36,6 +36,18 @@ export default function VehicleDrawer({ car, canEdit, onClose }: { car: VehicleC
   useEffect(() => {
     createClient().from("vehicles").select("invoice_confirmed_at").eq("id", car.id).single().then(({ data, error }) => { if (!error && data) setInv((data as any).invoice_confirmed_at ?? null); });
   }, [car.id]);
+  const [pick, setPick] = useState<string | null | undefined>(undefined); // undefined = sin la columna todavía
+  useEffect(() => {
+    createClient().from("vehicles").select("picked_up_at").eq("id", car.id).single().then(({ data, error }) => { if (!error && data) setPick((data as any).picked_up_at ?? null); });
+  }, [car.id]);
+  async function togglePick() {
+    setBusy(true);
+    const val = pick ? null : new Date().toISOString();
+    const { error } = await createClient().from("vehicles").update({ picked_up_at: val }).eq("id", car.id);
+    setBusy(false);
+    if (error) { setMsg(error.message); return; }
+    setPick(val); router.refresh();
+  }
   const [supId, setSupId] = useState<string>("");
   const [sups, setSups] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => {
@@ -160,6 +172,12 @@ export default function VehicleDrawer({ car, canEdit, onClose }: { car: VehicleC
               : <div className="text-xs text-amber-300/90 mt-2 flex items-center gap-2 flex-wrap">Sin confirmar: falta su factura
                   {canEdit && <button disabled={busy} onClick={confirmInvoice} className="border border-white/30 px-2 py-0.5 text-white/80 hover:bg-white hover:text-black disabled:opacity-40">Ya lo verifiqué, confirmar</button>}
                 </div>)}
+            {car.stage === "arribado" && pick !== undefined && (
+              <div className="text-xs mt-2 flex items-center gap-2 flex-wrap">
+                {pick ? <span className="text-emerald-300/90">✓ Retirado del puerto</span> : <span className="text-amber-300/90">En el puerto, sin retirar</span>}
+                {canEdit && <button disabled={busy} onClick={togglePick} className="border border-white/30 px-2 py-0.5 text-white/80 hover:bg-white hover:text-black disabled:opacity-40">{pick ? "Deshacer" : "Marcar retirado del puerto"}</button>}
+              </div>
+            )}
             <div className="text-xs text-white/60 mt-2 flex items-center gap-2 flex-wrap">Proveedor:
               {canEdit
                 ? <select value={supId} onChange={(e) => changeSupplier(e.target.value)} className="bg-black border border-white/30 px-2 py-1 text-white/90">

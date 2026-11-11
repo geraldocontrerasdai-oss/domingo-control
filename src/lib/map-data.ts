@@ -47,7 +47,11 @@ export async function getMapData(): Promise<MapData> {
   const [prof, ships, vehicles, media, events, etas, run] = await Promise.all([
     sb.from("profiles").select("role").eq("id", user!.id).single(),
     sb.from("shipments").select("id, mode, booking_no, bl_no, bl_status, consignee, port_loading, port_discharge, voyage:voyages(id, voyage_no, carrier, vessel:vessels(name)), containers(container_no)"),
-    sb.from("vehicles").select("id, identifier, make, model, model_year, color, origin_place, stage, docs, notes, is_provisional, shipment_id, container_id, supplier:suppliers(name)").is("archived_at", null),
+    (async () => {
+      const cols = "id, identifier, make, model, model_year, color, origin_place, stage, docs, notes, is_provisional, shipment_id, container_id, supplier:suppliers(name)";
+      const r = await sb.from("vehicles").select(cols + ", picked_up_at").is("archived_at", null);
+      return r.error ? sb.from("vehicles").select(cols).is("archived_at", null) : r; // sin la columna "retirado" todavía: se comporta como antes
+    })(),
     sb.from("vehicle_media").select("vehicle_id, storage_path").eq("is_primary", true).is("archived_at", null),
     sb.from("v_voyage_last_event").select("*"),
     sb.from("v_current_eta").select("voyage_id, eta, source"),
@@ -90,7 +94,10 @@ export async function getMapData(): Promise<MapData> {
     const roro = first.mode === "roro";
     const evNow: any = eventOf.get(g.voyageId);
     const doneAt: string | null = evNow && FINAL.includes(evNow.event_type) ? (evNow.occurred_at ?? evNow.observed_at) : null;
-    const isOld = !!doneAt && Date.now() - new Date(doneAt).getTime() > KEEP_DAYS * 864e5;
+    // Un viaje descargado sale del mapa a los 25 días, salvo que aún tenga vehículos sin retirar del puerto
+    const shipIds = new Set(list.map((x: any) => x.id));
+    const waiting = (vehicles.data ?? []).some((c: any) => shipIds.has(c.shipment_id) && "picked_up_at" in c && c.picked_up_at === null && c.stage === "arribado");
+    const isOld = !!doneAt && Date.now() - new Date(doneAt).getTime() > KEEP_DAYS * 864e5 && !waiting;
     const key = `${first.mode}|${first.port_loading}|${first.port_discharge}`;
     const slot = routeCount.get(key) ?? 0;
     routeCount.set(key, slot + 1);
