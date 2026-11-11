@@ -4,7 +4,7 @@ import { detectCarrier, searchNumber, trackUrl } from "@/lib/carriers";
 import { FINAL_EVENTS, RUN_EVERY_HOURS, TRACK_EVENTS } from "@/lib/tracking";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Lo consulta el agente de seguimiento. Dice qué buques toca revisar (los que llevan 24 h o más sin una
+// Lo consulta el agente de seguimiento. Dice qué buques toca revisar (los que llevan 48 h o más sin una
 // lectura buena; los que fallaron se reintentan en la siguiente vuelta de 3 h). Si no toca, devuelve la lista vacía: así el
 // agente termina enseguida y no gasta nada.
 export async function GET(req: Request) {
@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   const { data: prof } = await sb.from("profiles").select("role").eq("id", user.id).single();
   if (prof?.role !== "admin" && prof?.role !== "operaciones") return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
 
-  // Cada buque tiene su propio reloj: se vuelve a buscar cuando pasaron 24 h desde SU última lectura buena.
+  // Cada buque tiene su propio reloj: se vuelve a buscar cuando pasaron 48 h desde SU última lectura buena (RUN_EVERY_HOURS).
   // Así, si una naviera falla, solo esa se reintenta en la próxima vuelta de 3 h y las demás no se repiten.
   const force = new URL(req.url).searchParams.get("force") === "1";
   const [{ data: st }, { data: ck }] = await Promise.all([
@@ -46,7 +46,7 @@ export async function GET(req: Request) {
     const last: any = lastOf.get(voyageId);
     if (last && FINAL_EVENTS.includes(last.event_type)) return []; // ya llegó: no hace falta buscar más
     if (!g.numbers.length) return [];
-    if (!force && staleHours(voyageId) < RUN_EVERY_HOURS) return []; // leído hace menos de 24 h
+    if (!force && staleHours(voyageId) < RUN_EVERY_HOURS) return []; // leído hace menos de 48 h
     const vessel: any = Array.isArray(g.v.vessel) ? g.v.vessel[0] : g.v.vessel;
     const guess = detectCarrier(g.v.carrier, ...g.numbers);
     const numbers = g.numbers.map((n: string) => searchNumber(guess.carrier, n));

@@ -68,7 +68,7 @@ export async function getAlerts(client?: any): Promise<AlertsData> {
   const name = (v: any) => [v.model_year, v.make, v.model].filter(Boolean).join(" ") || "Vehículo";
   const vesselOf = (s: any) => { const v: any = Array.isArray(s?.voyage) ? s.voyage[0] : s?.voyage; const ve: any = Array.isArray(v?.vessel) ? v.vessel[0] : v?.vessel; return ve?.name ?? "buque"; };
   const items: AlertItem[] = [];
-  // Reloj por buque (última lectura buena del seguimiento): a las 36 h sin actualizar avisa, a las 48 h es importante
+  // Reloj por buque (última lectura buena). Se lee cada 48 h y se reintenta cada 3 h: a las 54 h sin actualizar avisa (ya fallaron ~2 reintentos), a las 72 h es importante
   const { data: ckRow } = await sb.from("settings").select("value").eq("key", "tracking_voyage_checks").maybeSingle();
   const voyChecks: Record<string, string> = (ckRow?.value as any) ?? {};
   const staleSeen = new Set<string>();
@@ -86,10 +86,10 @@ export async function getAlerts(client?: any): Promise<AlertsData> {
       staleSeen.add(s.voyage_id);
       const lastOk = voyChecks[s.voyage_id] ?? ev?.observed_at ?? null;
       const hrs = lastOk ? -days(lastOk) * 24 : null;
-      if (hrs !== null && hrs >= 36) {
-        items.push({ ...base, id: `buque-sin-actualizar-${s.voyage_id}`, priority: hrs >= 48 ? "alta" : "media", rule: "Buque sin actualizar", ref: vesselOf(s),
+      if (hrs !== null && hrs >= 54) {
+        items.push({ ...base, id: `buque-sin-actualizar-${s.voyage_id}`, priority: hrs >= 72 ? "alta" : "media", rule: "Buque sin actualizar", ref: vesselOf(s),
           title: `${vesselOf(s)} lleva ${Math.round(hrs)} horas sin actualizarse`,
-          detail: "El seguimiento no logró leer la página de la naviera. Si pasa de 48 horas, hay que revisarlo a mano.",
+          detail: "El seguimiento no logró leer la página de la naviera. Se lee cada 48 horas y se reintenta cada 3; si pasa de 72 horas, hay que revisarlo a mano.",
           action: "Abrir el seguimiento del buque desde el mapa (botón de la naviera) y actualizar el estado a mano; confirmar que la app de Claude esté abierta en la laptop." });
       }
     }
@@ -201,7 +201,7 @@ export async function getAlerts(client?: any): Promise<AlertsData> {
 
   // 8. El seguimiento no ha corrido
   const lastRun: string | null = (run.data?.value as any)?.at ?? null;
-  if (!lastRun || days(lastRun) < -1.5) {
+  if (!lastRun || days(lastRun) < -3) {
     items.push({ id: "seguimiento", priority: "media", rule: "Seguimiento detenido",
       title: lastRun ? `El seguimiento no se actualiza hace ${Math.round(-days(lastRun) * 24)} horas` : "El seguimiento nunca se ha ejecutado",
       detail: "Los datos de buques pueden estar desactualizados.", action: "Abrir la app de Claude en la laptop con el navegador integrado y la sesión iniciada." });

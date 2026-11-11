@@ -12,4 +12,5 @@ export const TRACK_EVENTS: { code: string; label: string; progress: number; stag
 ];
 export const EVENT_CODES = TRACK_EVENTS.map((e) => e.code);
 export const FINAL_EVENTS = ["arrived", "discharged"];
-export const RUN_EVERY_HOURS = 24;
+// Cada buque se lee cada 48 h; si no se logra a la primera, el agente reintenta cada 3 h hasta conseguirlo.
+export const RUN_EVERY_HOURS = 48;
